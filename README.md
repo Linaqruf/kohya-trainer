@@ -28,3 +28,6 @@ You can find latest notebook update [here](https://github.com/Linaqruf/DiffuserV
 - Install **gallery-dl** to scrap images, so you can get your own dataset fast with google bandwidth
 - Huggingface Integration, here you can login to huggingface-hub and upload your trained model/dataset to huggingface
 ---
+
+## Credit
+### All credit goes to [Kohya](https://twitter.com/kohya_ss)
