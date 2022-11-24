@@ -21,6 +21,7 @@ You can find latest notebook update [here](https://github.com/Linaqruf/DiffuserV
 - Extend token length from 75 to 225.
 5. By preparing a certain number of images (several hundred or more seems to be desirable), you can make learning even more flexible than with DreamBooth.
 6. It also support Hypernetwork learning
+7. `NEW!` 23/11 - Implemented Waifu Diffusion 1.4 Tagger for alternative DeepDanbooru to auto-tagging.
 
 ### **_Q: And what's differences between this notebook and other dreambooth notebook out there?_**
 ### A: We're adding Quality of Life features such as:
