@@ -1,4 +1,4 @@
-# Kohya Trainer : Diffuser V3 - VRAM 12GB
+# Kohya Trainer V3 Colab UI - VRAM 12GB
 ### Best way to train Stable Diffusion model for peeps who didn't have good GPU
 
 Adapted to Google Colab based on [Kohya Guide](https://note.com/kohya_ss/n/nbf7ce8d80f29#c9d7ee61-5779-4436-b4e6-9053741c46bb)
