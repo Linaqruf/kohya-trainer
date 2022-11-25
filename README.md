@@ -14,14 +14,13 @@ You can find latest notebook update [here](https://github.com/Linaqruf/kohya-tra
 ### A: **Kohya Trainer** have some new features like
 1. Using the U-Net learning
 2. Automatic captioning/tagging for every image automatically with BLIP/DeepDanbooru
-3. Read all captions/tags created and put them in metadata.json
-4. Implemented [NovelAI Aspect Ratio Bucketing Tool](https://github.com/NovelAI/novelai-aspect-ratio-bucketing) so you don't need to crop image dataset 512x512 ever again
+3. Implemented [NovelAI Aspect Ratio Bucketing Tool](https://github.com/NovelAI/novelai-aspect-ratio-bucketing) so you don't need to crop image dataset 512x512 ever again
 - Use the output of the second-to-last layer of CLIP (Text Encoder) instead of the last layer.
 - Learning at non-square resolutions (Aspect Ratio Bucketing) .
 - Extend token length from 75 to 225.
-5. By preparing a certain number of images (several hundred or more seems to be desirable), you can make learning even more flexible than with DreamBooth.
-6. It also support Hypernetwork learning
-7. `NEW!` 23/11 - Implemented Waifu Diffusion 1.4 Tagger for alternative DeepDanbooru to auto-tagging.
+4. By preparing a certain number of images (several hundred or more seems to be desirable), you can make learning even more flexible than with DreamBooth.
+5. It also support Hypernetwork learning
+6. `NEW!` 23/11 - Implemented Waifu Diffusion 1.4 Tagger for alternative DeepDanbooru to auto-tagging.
 
 ### **_Q: And what's differences between this notebook and other dreambooth notebook out there?_**
 ### A: We're adding Quality of Life features such as:
