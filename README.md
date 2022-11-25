@@ -5,7 +5,7 @@ Adapted to Google Colab based on [Kohya Guide](https://note.com/kohya_ss/n/nbf7c
 
 Adapted to Google Colab by [Linaqruf](https://github.com/Linaqruf)
 
-You can find latest notebook update [here](https://github.com/Linaqruf/DiffuserV2/blob/main/DiffuserV2%2BScraper.ipynb)
+You can find latest notebook update [here](https://github.com/Linaqruf/kohya-trainer/blob/main/kohya-trainer-v3-stable.ipynb)
 
 ---
 ## What is this?
@@ -30,4 +30,4 @@ You can find latest notebook update [here](https://github.com/Linaqruf/DiffuserV
 ---
 
 ## Credit
-[Kohya](https://twitter.com/kohya_ss)
+[Kohya](https://twitter.com/kohya_ss) | Just for my part
