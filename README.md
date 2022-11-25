@@ -30,4 +30,4 @@ You can find latest notebook update [here](https://github.com/Linaqruf/DiffuserV
 ---
 
 ## Credit
-### All credit goes to [Kohya](https://twitter.com/kohya_ss)
+[Kohya](https://twitter.com/kohya_ss)
