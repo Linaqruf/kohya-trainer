@@ -1,10 +1,11 @@
 accelerate==0.14.0
-transformers>=4.21.0
+transformers==4.25.1
 ftfy
 albumentations
 opencv-python
 einops
 diffusers[torch]==0.9.0
 pytorch_lightning
-bitsandbytes
+bitsandbytes==0.35.0
 tensorboard
+safetensors==0.2.5
