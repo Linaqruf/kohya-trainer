@@ -3,6 +3,8 @@
 
 # 横長の画像から顔検出して正立するように回転し、そこを中心に正方形に切り出す
 
+# v2: extract max face if multiple faces are found
+
 import argparse
 import math
 import cv2
@@ -15,24 +17,38 @@ import numpy as np
 KP_REYE = 11
 KP_LEYE = 19
 
+SCORE_THRES = 0.90
+
 
 def detect_face(detector, image):
   preds = detector(image)                     # bgr
-
+  # print(len(preds))
   if len(preds) == 0:
-    return None, None
+    return None, None, None, None, None
 
-  left = preds[0]['bbox'][0]
-  top = preds[0]['bbox'][1]
-  right = preds[0]['bbox'][2]
-  bottom = preds[0]['bbox'][3]
+  index = -1
+  max_score = 0
+  max_size = 0
+  for i in range(len(preds)):
+    bb = preds[i]['bbox']
+    score = bb[-1]
+    size = max(bb[2]-bb[0], bb[3]-bb[1])
+    if (score > max_score and max_score < SCORE_THRES) or (score >= SCORE_THRES and size > max_size):
+      index = i
+      max_score = score
+      max_size = size
+
+  left = preds[index]['bbox'][0]
+  top = preds[index]['bbox'][1]
+  right = preds[index]['bbox'][2]
+  bottom = preds[index]['bbox'][3]
   cx = int((left + right) / 2)
   cy = int((top + bottom) / 2)
   fw = int(right - left)
   fh = int(bottom - top)
 
-  lex, ley = preds[0]['keypoints'][KP_LEYE, 0:2]
-  rex, rey = preds[0]['keypoints'][KP_REYE, 0:2]
+  lex, ley = preds[index]['keypoints'][KP_LEYE, 0:2]
+  rex, rey = preds[index]['keypoints'][KP_REYE, 0:2]
   angle = math.atan2(ley - rey, lex - rex)
   angle = angle / math.pi * 180
   return cx, cy, fw, fh, angle
@@ -81,7 +97,7 @@ def process(args):
   output_extension = ".png"
 
   os.makedirs(args.dst_dir, exist_ok=True)
-  paths = glob.glob(args.src_dir + "/*.png") + glob.glob(args.src_dir + "/*.jpg")
+  paths = glob.glob(os.path.join(args.src_dir, "*.png")) + glob.glob(os.path.join(args.src_dir, "*.jpg"))
   for path in tqdm(paths):
     basename = os.path.splitext(os.path.basename(path))[0]
 
@@ -97,8 +113,9 @@ def process(args):
 
     cx, cy, fw, fh, angle = detect_face(detector, image)
     if cx is None:
-      print(f"face not found: {path}")
-      cx = cy = fw = fh = 0
+      print(f"face not found, skip: {path}")
+      # cx = cy = fw = fh = 0
+      continue          # スキップする
 
     # オプション指定があれば回転する
     if args.rotate and cx != 0:
@@ -114,10 +131,12 @@ def process(args):
         # 顔サイズを基準にリサイズする
         scale = args.resize_face_size / max(fw, fh)
         if scale < crop_width / w:
-          print(f"image width too small in face size based resizing / 顔を基準にリサイズすると画像の幅がcrop sizeより小さい（顔が相対的に大きすぎる）ので顔サイズが変わります: {path}")
+          print(
+              f"image width too small in face size based resizing / 顔を基準にリサイズすると画像の幅がcrop sizeより小さい（顔が相対的に大きすぎる）ので顔サイズが変わります: {path}")
           scale = crop_width / w
         if scale < crop_height / h:
-          print(f"image height too small in face size based resizing / 顔を基準にリサイズすると画像の高さがcrop sizeより小さい（顔が相対的に大きすぎる）ので顔サイズが変わります: {path}")
+          print(
+              f"image height too small in face size based resizing / 顔を基準にリサイズすると画像の高さがcrop sizeより小さい（顔が相対的に大きすぎる）ので顔サイズが変わります: {path}")
           scale = crop_height / h
       else:
         if w < crop_width:
