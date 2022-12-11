@@ -14,6 +14,13 @@ You can find the latest update to the notebook [here](https://github.com/Linaqru
 - Ability to make learning even more flexible than with DreamBooth by preparing a certain number of images (several hundred or more seems to be desirable).
 
 ## Change Logs:
+
+##### v7 (7/12):
+- Requires Diffusers 0.10.2 (0.10.0 or later will work, but there are reported issues with 0.10.0 so we recommend using 0.10.2). To update, run `pip install -U diffusers[torch]==0.10.2` in your virtual environment.
+- Added support for Diffusers 0.10 (uses code in Diffusers for `v-parameterization` training and also supports `safetensors`).
+- Added support for accelerate 0.15.0.
+- Added support for multiple teacher data folders. For caption and tag preprocessing, use the `--full_path` option. The arguments for the cleaning script have also changed, see "Caption and Tag Preprocessing" for details.
+
 ##### v6 (6/12):
 - Temporary fix for an error when saving in the .safetensors format with some models. If you experienced this error with v5, please try v6.
 
