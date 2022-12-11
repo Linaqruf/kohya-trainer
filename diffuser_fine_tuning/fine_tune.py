@@ -2,7 +2,8 @@
 # v3: add logging for tensorboard, fix to shuffle=False in DataLoader (shuffling is in dataset)
 # v4: support SD2.0, add lr scheduler options, supports save_every_n_epochs and save_state for DiffUsers model
 # v5: refactor to use model_util, support safetensors, add settings to use Diffusers' xformers, add log prefix
-
+# v6: model_util update
+# v7: support Diffusers 0.10.0 (v-parameterization training, safetensors in Diffusers) and accelerate 0.15.0, support full path in metadata
 
 # このスクリプトのライセンスは、train_dreambooth.pyと同じくApache License 2.0とします
 # License:
@@ -51,7 +52,7 @@ import model_util
 
 # Tokenizer: checkpointから読み込むのではなくあらかじめ提供されているものを使う
 TOKENIZER_PATH = "openai/clip-vit-large-patch14"
-V2_STABLE_DIFFUSION_PATH = "stabilityai/stable-diffusion-2"     # ここからtokenizerだけ使う
+V2_STABLE_DIFFUSION_PATH = "stabilityai/stable-diffusion-2"     # ここからtokenizerだけ使う v2とv2.1はtokenizer仕様は同じ
 
 # checkpointファイル名
 EPOCH_STATE_NAME = "epoch-{:06d}-state"
@@ -101,7 +102,7 @@ class FineTuningDataset(torch.utils.data.Dataset):
     for image_key, img_md in metadata.items():
       if 'train_resolution' not in img_md:
         continue
-      if not os.path.exists(os.path.join(self.train_data_dir, image_key + '.npz')):
+      if not os.path.exists(self.image_key_to_npz_file(image_key)):
         continue
 
       reso = tuple(img_md['train_resolution'])
@@ -129,8 +130,14 @@ class FineTuningDataset(torch.utils.data.Dataset):
     for bucket in self.buckets:
       random.shuffle(bucket)
 
+  def image_key_to_npz_file(self, image_key):
+    npz_file = os.path.splitext(image_key)[0] + '.npz'
+    if os.path.exists(npz_file):
+      return npz_file
+    return os.path.join(self.train_data_dir, image_key + '.npz')
+
   def load_latent(self, image_key):
-    return np.load(os.path.join(self.train_data_dir, image_key + '.npz'))['arr_0']
+    return np.load(self.image_key_to_npz_file(image_key))['arr_0']
 
   def __len__(self):
     return self._length
@@ -262,6 +269,11 @@ def train(args):
 
   print(f"Total dataset length / データセットの長さ: {len(train_dataset)}")
   print(f"Total images / 画像数: {train_dataset.images_count}")
+
+  if len(train_dataset) == 0:
+    print("No data found. Please verify the metadata file and train_data_dir option. / 画像がありません。メタデータおよびtrain_data_dirオプションを確認してください。")
+    return
+
   if args.debug_dataset:
     train_dataset.show_buckets()
     i = 0
@@ -287,6 +299,19 @@ def train(args):
     logging_dir = args.logging_dir + "/" + log_prefix + time.strftime('%Y%m%d%H%M%S', time.localtime())
   accelerator = Accelerator(gradient_accumulation_steps=args.gradient_accumulation_steps,
                             mixed_precision=args.mixed_precision, log_with=log_with, logging_dir=logging_dir)
+
+  # accelerateの互換性問題を解決する
+  accelerator_0_15 = True
+  try:
+    accelerator.unwrap_model("dummy", True)
+    print("Using accelerator 0.15.0 or above.")
+  except TypeError:
+    accelerator_0_15 = False
+
+  def unwrap_model(model):
+    if accelerator_0_15:
+      return accelerator.unwrap_model(model, True)
+    return accelerator.unwrap_model(model)
 
   # mixed precisionに対応した型を用意しておき適宜castする
   weight_dtype = torch.float32
@@ -456,8 +481,8 @@ def train(args):
 
   # v4で更新：clip_sample=Falseに
   # Diffusersのtrain_dreambooth.pyがconfigから持ってくるように変更されたので、clip_sample=Falseになるため、それに合わせる
-  # 既存の1.4/1.5/2.0はすべてschdulerのconfigは（クラス名を除いて）同じ
-  # よくソースを見たら学習時は関係ないや(;'∀')　
+  # 既存の1.4/1.5/2.0/2.1はすべてschdulerのconfigは（クラス名を除いて）同じ
+  # よくソースを見たら学習時はclip_sampleは関係ないや(;'∀')
   noise_scheduler = DDPMScheduler(beta_start=0.00085, beta_end=0.012, beta_schedule="scaled_linear",
                                   num_train_timesteps=1000, clip_sample=False)
 
@@ -530,35 +555,8 @@ def train(args):
 
         if args.v_parameterization:
           # v-parameterization training
-
-          # 11/29現在v predictionのコードがDiffusersにcommitされたがリリースされていないので独自コードを使う
-          # 実装の中身は同じ模様
-
-          # こうしたい：
-          # target = noise_scheduler.get_v(latents, noise, timesteps)
-
-          # StabilityAiのddpm.pyのコード：
-          # elif self.parameterization == "v":
-          #     target = self.get_v(x_start, noise, t)
-          # ...
-          # def get_v(self, x, noise, t):
-          #   return (
-          #           extract_into_tensor(self.sqrt_alphas_cumprod, t, x.shape) * noise -
-          #           extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x.shape) * x
-          #   )
-
-          # scheduling_ddim.pyのコード：
-          # elif self.config.prediction_type == "v_prediction":
-          #     pred_original_sample = (alpha_prod_t**0.5) * sample - (beta_prod_t**0.5) * model_output
-          #     # predict V
-          #     model_output = (alpha_prod_t**0.5) * model_output + (beta_prod_t**0.5) * sample
-
-          # これでいいかな？：
-          alpha_prod_t = noise_scheduler.alphas_cumprod[timesteps]
-          beta_prod_t = 1 - alpha_prod_t
-          alpha_prod_t = torch.reshape(alpha_prod_t, (len(alpha_prod_t), 1, 1, 1))    # broadcastされないらしいのでreshape
-          beta_prod_t = torch.reshape(beta_prod_t, (len(beta_prod_t), 1, 1, 1))
-          target = (alpha_prod_t ** 0.5) * noise - (beta_prod_t ** 0.5) * latents
+          # Diffusers 0.10.0からv_parameterizationの学習に対応したのでそちらを使う
+          target = noise_scheduler.get_velocity(latents, noise, timesteps)
         else:
           target = noise
 
@@ -608,15 +606,15 @@ def train(args):
         if fine_tuning:
           if use_stable_diffusion_format:
             model_util.save_stable_diffusion_checkpoint(
-                args.v2, ckpt_file, accelerator.unwrap_model(text_encoder), accelerator.unwrap_model(unet),
+                args.v2, ckpt_file, unwrap_model(text_encoder), unwrap_model(unet),
                 args.pretrained_model_name_or_path, epoch + 1, global_step, save_dtype)
           else:
             out_dir = os.path.join(args.output_dir, EPOCH_DIFFUSERS_DIR_NAME.format(epoch + 1))
             os.makedirs(out_dir, exist_ok=True)
-            model_util.save_diffusers_checkpoint(args.v2, out_dir, accelerator.unwrap_model(text_encoder),
-                                                 accelerator.unwrap_model(unet), args.pretrained_model_name_or_path)
+            model_util.save_diffusers_checkpoint(args.v2, out_dir, unwrap_model(text_encoder),
+                                                 unwrap_model(unet), args.pretrained_model_name_or_path, use_safetensors=args.use_safetensors)
         else:
-          save_hypernetwork(ckpt_file, accelerator.unwrap_model(hypernetwork))
+          save_hypernetwork(ckpt_file, unwrap_model(hypernetwork))
 
         if args.save_state:
           print("saving state.")
@@ -625,10 +623,10 @@ def train(args):
   is_main_process = accelerator.is_main_process
   if is_main_process:
     if fine_tuning:
-      unet = accelerator.unwrap_model(unet)
-      text_encoder = accelerator.unwrap_model(text_encoder)
+      unet = unwrap_model(unet)
+      text_encoder = unwrap_model(text_encoder)
     else:
-      hypernetwork = accelerator.unwrap_model(hypernetwork)
+      hypernetwork = unwrap_model(hypernetwork)
 
   accelerator.end_training()
 
@@ -651,7 +649,8 @@ def train(args):
         print(f"save trained model as Diffusers to {args.output_dir}")
         out_dir = os.path.join(args.output_dir, LAST_DIFFUSERS_DIR_NAME)
         os.makedirs(out_dir, exist_ok=True)
-        model_util.save_diffusers_checkpoint(args.v2, out_dir, text_encoder, unet, args.pretrained_model_name_or_path)
+        model_util.save_diffusers_checkpoint(args.v2, out_dir, text_encoder, unet,
+                                             args.pretrained_model_name_or_path, use_safetensors=args.use_safetensors)
     else:
       ckpt_file = os.path.join(args.output_dir, model_util.get_last_ckpt_name(args.use_safetensors))
       print(f"save trained model to {ckpt_file}")
@@ -877,10 +876,6 @@ def replace_unet_cross_attn_to_memory_efficient():
 
     out = rearrange(out, 'b h n d -> b n (h d)')
 
-    # diffusers 0.6.0
-    if type(self.to_out) is torch.nn.Sequential:
-      return self.to_out(out)
-
     # diffusers 0.7.0~  わざわざ変えるなよ (;´Д｀)
     out = self.to_out[0](out)
     out = self.to_out[1](out)
@@ -924,10 +919,6 @@ def replace_unet_cross_attn_to_xformers():
 
     out = rearrange(out, 'b n h d -> b n (h d)', h=h)
 
-    # diffusers 0.6.0
-    if type(self.to_out) is torch.nn.Sequential:
-      return self.to_out(out)
-
     # diffusers 0.7.0~
     out = self.to_out[0](out)
     out = self.to_out[1](out)
@@ -954,7 +945,7 @@ if __name__ == '__main__':
   parser.add_argument("--output_dir", type=str, default=None,
                       help="directory to output trained model, save as same format as input / 学習後のモデル出力先ディレクトリ（入力と同じ形式で保存）")
   parser.add_argument("--use_safetensors", action='store_true',
-                      help="use safetensors format for StableDiffusion checkpoint / StableDiffusionのcheckpointをsafetensors形式で保存する")
+                      help="use safetensors format to save / checkpoint、モデルをsafetensors形式で保存する")
   parser.add_argument("--train_text_encoder", action="store_true", help="train text encoder / text encoderも学習する")
   parser.add_argument("--hypernetwork_module", type=str, default=None,
                       help='train hypernetwork instead of fine tuning, module to use / fine tuningの代わりにHypernetworkの学習をする場合、そのモジュール')
@@ -977,7 +968,7 @@ if __name__ == '__main__':
   parser.add_argument("--xformers", action="store_true",
                       help="use xformers for CrossAttention / CrossAttentionにxformersを使う")
   parser.add_argument("--diffusers_xformers", action='store_true',
-                      help='use xformers by diffusers (Hypernetworks doen\'t work) / Diffusersでxformersを使用する（Hypernetwork利用不可）')
+                      help='use xformers by diffusers (Hypernetworks doesn\'t work) / Diffusersでxformersを使用する（Hypernetwork利用不可）')
   parser.add_argument("--learning_rate", type=float, default=2.0e-6, help="learning rate / 学習率")
   parser.add_argument("--max_train_steps", type=int, default=1600, help="training steps / 学習ステップ数")
   parser.add_argument("--seed", type=int, default=None, help="random seed for training / 学習時の乱数のseed")

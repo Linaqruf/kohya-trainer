@@ -73,9 +73,6 @@ def clean_caption(caption):
 
 
 def main(args):
-  image_paths = glob.glob(os.path.join(args.train_data_dir, "*.jpg")) + glob.glob(os.path.join(args.train_data_dir, "*.png"))
-  print(f"found {len(image_paths)} images.")
-
   if os.path.exists(args.in_json):
     print(f"loading existing metadata: {args.in_json}")
     with open(args.in_json, "rt", encoding='utf-8') as f:
@@ -85,25 +82,17 @@ def main(args):
     return
 
   print("cleaning captions and tags.")
-  for image_path in tqdm(image_paths):
-    tags_path = os.path.splitext(image_path)[0] + '.txt'
-    with open(tags_path, "rt", encoding='utf-8') as f:
-      tags = f.readlines()[0].strip()
-
-    image_key = os.path.splitext(os.path.basename(image_path))[0]
-    if image_key not in metadata:
-      print(f"image not in metadata / メタデータに画像がありません: {image_path}")
-      return
-
+  image_keys = list(metadata.keys())
+  for image_key in tqdm(image_keys):
     tags = metadata[image_key].get('tags')
     if tags is None:
-      print(f"image does not have tags / メタデータにタグがありません: {image_path}")
+      print(f"image does not have tags / メタデータにタグがありません: {image_key}")
     else:
       metadata[image_key]['tags'] = clean_tags(image_key, tags)
 
     caption = metadata[image_key].get('caption')
     if caption is None:
-      print(f"image does not have caption / メタデータにキャプションがありません: {image_path}")
+      print(f"image does not have caption / メタデータにキャプションがありません: {image_key}")
     else:
       metadata[image_key]['caption'] = clean_caption(caption)
 
@@ -116,10 +105,19 @@ def main(args):
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
-  parser.add_argument("train_data_dir", type=str, help="directory for train images / 学習画像データのディレクトリ")
+  # parser.add_argument("train_data_dir", type=str, help="directory for train images / 学習画像データのディレクトリ")
   parser.add_argument("in_json", type=str, help="metadata file to input / 読み込むメタデータファイル")
   parser.add_argument("out_json", type=str, help="metadata file to output / メタデータファイル書き出し先")
-  # parser.add_argument("--debug", action="store_true", help="debug mode")
 
-  args = parser.parse_args()
+  args, unknown = parser.parse_known_args()
+  if len(unknown) == 1:
+    print("WARNING: train_data_dir argument is removed. This script will not work with three arguments in future. Please specify two arguments: in_json and out_json.")
+    print("All captions and tags in the metadata are processed.")
+    print("警告: train_data_dir引数は不要になりました。将来的には三つの引数を指定すると動かなくなる予定です。読み込み元のメタデータと書き出し先の二つの引数だけ指定してください。")
+    print("メタデータ内のすべてのキャプションとタグが処理されます。")
+    args.in_json = args.out_json
+    args.out_json = unknown[0]
+  elif len(unknown) > 0:
+    raise ValueError(f"error: unrecognized arguments: {unknown}")
+
   main(args)
