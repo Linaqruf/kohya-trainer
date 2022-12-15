@@ -4,6 +4,7 @@
 # v5: refactor to use model_util, support safetensors, add settings to use Diffusers' xformers, add log prefix
 # v6: model_util update
 # v7: support Diffusers 0.10.0 (v-parameterization training, safetensors in Diffusers) and accelerate 0.15.0, support full path in metadata
+# v8: experimental full fp16 training.
 
 # このスクリプトのライセンスは、train_dreambooth.pyと同じくApache License 2.0とします
 # License:
@@ -444,15 +445,37 @@ def train(args):
       args.lr_scheduler, optimizer, num_warmup_steps=args.lr_warmup_steps, num_training_steps=args.max_train_steps * args.gradient_accumulation_steps)
 
   # acceleratorがなんかよろしくやってくれるらしい
+  if args.full_fp16:
+    assert args.mixed_precision == "fp16", "full_fp16 requires mixed precision='fp16' / full_fp16を使う場合はmixed_precision='fp16'を指定してください。"
+    print("enable full fp16 training.")
+
   if fine_tuning:
+    # 実験的機能：勾配も含めたfp16学習を行う　モデル全体をfp16にする
+    if args.full_fp16:
+      unet.to(weight_dtype)
+      text_encoder.to(weight_dtype)
+
     if args.train_text_encoder:
       unet, text_encoder, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
           unet, text_encoder, optimizer, train_dataloader, lr_scheduler)
     else:
       unet, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(unet, optimizer, train_dataloader, lr_scheduler)
   else:
+    if args.full_fp16:
+      unet.to(weight_dtype)
+      hypernetwork.to(weight_dtype)
+
     unet, hypernetwork, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         unet, hypernetwork, optimizer, train_dataloader, lr_scheduler)
+
+  # 実験的機能：勾配も含めたfp16学習を行う　PyTorchにパッチを当ててfp16でのgrad scaleを有効にする
+  if args.full_fp16:
+    org_unscale_grads = accelerator.scaler._unscale_grads_
+
+    def _unscale_grads_replacer(optimizer, inv_scale, found_inf, allow_fp16):
+      return org_unscale_grads(optimizer, inv_scale, found_inf, True)
+
+    accelerator.scaler._unscale_grads_ = _unscale_grads_replacer
 
   # TODO accelerateのconfigに指定した型とオプション指定の型とをチェックして異なれば警告を出す
 
@@ -978,6 +1001,7 @@ if __name__ == '__main__':
                       help="Number of updates steps to accumulate before performing a backward/update pass / 学習時に逆伝播をする前に勾配を合計するステップ数")
   parser.add_argument("--mixed_precision", type=str, default="no",
                       choices=["no", "fp16", "bf16"], help="use mixed precision / 混合精度を使う場合、その精度")
+  parser.add_argument("--full_fp16", action="store_true", help="fp16 training including gradients / 勾配も含めてfp16で学習する")
   parser.add_argument("--save_precision", type=str, default=None,
                       choices=[None, "float", "fp16", "bf16"], help="precision in saving (available in StableDiffusion checkpoint) / 保存時に精度を変更して保存する（StableDiffusion形式での保存時のみ有効）")
   parser.add_argument("--clip_skip", type=int, default=None,
