@@ -47,16 +47,6 @@ def main(args):
     print(f"no metadata / メタデータファイルがありません: {args.in_json}")
     return
 
-  # # モデル形式のオプション設定を確認する
-  # use_stable_diffusion_format = os.path.isfile(args.model_name_or_path)
-
-  # # モデルを読み込む
-  # if use_stable_diffusion_format:
-  #   print("load StableDiffusion checkpoint")
-  #   # _, vae, _ = model_util.load_models_from_stable_diffusion_checkpoint(args.v2, args.model_name_or_path)
-  # else:
-  #   print("load Diffusers pretrained models")
-
   weight_dtype = torch.float32
   if args.mixed_precision == "fp16":
     weight_dtype = torch.float16
@@ -80,7 +70,7 @@ def main(args):
   bucket_counts = [0 for _ in range(len(bucket_resos))]
   img_ar_errors = []
   for i, image_path in enumerate(tqdm(image_paths)):
-    image_key = os.path.splitext(os.path.basename(image_path))[0]
+    image_key = image_path if args.full_path else os.path.splitext(os.path.basename(image_path))[0]
     if image_key not in metadata:
       metadata[image_key] = {}
 
@@ -139,7 +129,7 @@ def main(args):
         latents = get_latents(vae, [img for _, _, img in bucket], weight_dtype)
 
         for (image_key, reso, _), latent in zip(bucket, latents):
-          np.savez(os.path.join(args.train_data_dir, image_key), latent)
+          np.savez(os.path.join(args.train_data_dir, os.path.splitext(os.path.basename(image_key))[0]), latent)
 
         bucket.clear()
 
@@ -170,6 +160,8 @@ if __name__ == '__main__':
   parser.add_argument("--max_bucket_reso", type=int, default=1024, help="maximum resolution for buckets / bucketの最小解像度")
   parser.add_argument("--mixed_precision", type=str, default="no",
                       choices=["no", "fp16", "bf16"], help="use mixed precision / 混合精度を使う場合、その精度")
+  parser.add_argument("--full_path", action="store_true",
+                      help="use full path as image-key in metadata (supports multiple directories) / メタデータで画像キーをフルパスにする（複数の学習画像ディレクトリに対応）")
 
   args = parser.parse_args()
   main(args)

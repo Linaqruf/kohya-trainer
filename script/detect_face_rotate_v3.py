@@ -4,6 +4,7 @@
 # 横長の画像から顔検出して正立するように回転し、そこを中心に正方形に切り出す
 
 # v2: extract max face if multiple faces are found
+# v3: add crop_ratio option
 
 import argparse
 import math
@@ -78,7 +79,8 @@ def rotate_image(image, angle, cx, cy):
 
 
 def process(args):
-  assert not (args.resize_fit and args.resize_face_size is not None), f"resize_fit and resize_face_size can't be specified both / resize_fitとresize_face_sizeはどちらか片方しか指定できません"
+  assert (not args.resize_fit) or args.resize_face_size is None, f"resize_fit and resize_face_size can't be specified both / resize_fitとresize_face_sizeはどちらか片方しか指定できません"
+  assert args.crop_ratio is None or args.resize_face_size is None, f"crop_ratio指定時はresize_face_sizeは指定できません"
 
   # アニメ顔検出モデルを読み込む
   print("loading face detector.")
@@ -92,12 +94,20 @@ def process(args):
     assert len(tokens) == 2, f"crop_size must be 'width,height' / crop_sizeは'幅,高さ'で指定してください"
     crop_width, crop_height = [int(t) for t in tokens]
 
+  if args.crop_ratio is None:
+    crop_h_ratio = crop_v_ratio = None
+  else:
+    tokens = args.crop_ratio.split(',')
+    assert len(tokens) == 2, f"crop_ratio must be 'horizontal,vertical' / crop_ratioは'幅,高さ'の倍率で指定してください"
+    crop_h_ratio, crop_v_ratio = [float(t) for t in tokens]
+
   # 画像を処理する
   print("processing.")
   output_extension = ".png"
 
   os.makedirs(args.dst_dir, exist_ok=True)
-  paths = glob.glob(os.path.join(args.src_dir, "*.png")) + glob.glob(os.path.join(args.src_dir, "*.jpg"))
+  paths = glob.glob(os.path.join(args.src_dir, "*.png")) + glob.glob(os.path.join(args.src_dir, "*.jpg")) + \
+      glob.glob(os.path.join(args.src_dir, "*.webp"))
   for path in tqdm(paths):
     basename = os.path.splitext(os.path.basename(path))[0]
 
@@ -122,31 +132,39 @@ def process(args):
       image, cx, cy = rotate_image(image, angle, cx, cy)
 
     # オプション指定があれば顔を中心に切り出す
-    if crop_width is not None:
+    if crop_width is not None or crop_h_ratio is not None:
       assert cx > 0, f"face not found for cropping: {path}"
+      cur_crop_width, cur_crop_height = crop_width, crop_height
+      if crop_h_ratio is not None:
+        cur_crop_width = int(max(fw, fh) * crop_h_ratio + .5)
+        cur_crop_height = int(max(fw, fh) * crop_v_ratio + .5)
 
       # リサイズを必要なら行う
       scale = 1.0
       if args.resize_face_size is not None:
         # 顔サイズを基準にリサイズする
         scale = args.resize_face_size / max(fw, fh)
-        if scale < crop_width / w:
+        if scale < cur_crop_width / w:
           print(
               f"image width too small in face size based resizing / 顔を基準にリサイズすると画像の幅がcrop sizeより小さい（顔が相対的に大きすぎる）ので顔サイズが変わります: {path}")
-          scale = crop_width / w
-        if scale < crop_height / h:
+          scale = cur_crop_width / w
+        if scale < cur_crop_height / h:
           print(
               f"image height too small in face size based resizing / 顔を基準にリサイズすると画像の高さがcrop sizeより小さい（顔が相対的に大きすぎる）ので顔サイズが変わります: {path}")
-          scale = crop_height / h
+          scale = cur_crop_height / h
+      elif crop_h_ratio is not None:
+        # 倍率指定の時にはリサイズしない
+        pass
       else:
-        if w < crop_width:
+        # 切り出しサイズ指定あり
+        if w < cur_crop_width:
           print(f"image width too small/ 画像の幅がcrop sizeより小さいので画質が劣化します: {path}")
-          scale = crop_width / w
-        if h < crop_height:
+          scale = cur_crop_width / w
+        if h < cur_crop_height:
           print(f"image height too small/ 画像の高さがcrop sizeより小さいので画質が劣化します: {path}")
-          scale = crop_height / h
+          scale = cur_crop_height / h
         if args.resize_fit:
-          scale = max(crop_width / w, crop_height / h)
+          scale = max(cur_crop_width / w, cur_crop_height / h)
 
       if scale != 1.0:
         w = int(w * scale + .5)
@@ -157,25 +175,28 @@ def process(args):
         fw = int(fw * scale + .5)
         fh = int(fh * scale + .5)
 
-      x = cx - crop_width // 2
-      cx = crop_width // 2
+      cur_crop_width = min(cur_crop_width, image.shape[1])
+      cur_crop_height = min(cur_crop_height, image.shape[0])
+
+      x = cx - cur_crop_width // 2
+      cx = cur_crop_width // 2
       if x < 0:
         cx = cx + x
         x = 0
-      elif x + crop_width > w:
-        cx = cx + (x + crop_width - w)
-        x = w - crop_width
-      image = image[:, x:x+crop_width]
+      elif x + cur_crop_width > w:
+        cx = cx + (x + cur_crop_width - w)
+        x = w - cur_crop_width
+      image = image[:, x:x+cur_crop_width]
 
-      y = cy - crop_height // 2
-      cy = crop_height // 2
+      y = cy - cur_crop_height // 2
+      cy = cur_crop_height // 2
       if y < 0:
         cy = cy + y
         y = 0
-      elif y + crop_height > h:
-        cy = cy + (y + crop_height - h)
-        y = h - crop_height
-      image = image[y:y + crop_height]
+      elif y + cur_crop_height > h:
+        cy = cy + (y + cur_crop_height - h)
+        y = h - cur_crop_height
+      image = image[y:y + cur_crop_height]
 
     # # debug
     # print(path, cx, cy, angle)
@@ -201,11 +222,13 @@ if __name__ == '__main__':
   parser.add_argument("--dst_dir", type=str, help="directory to save images / 画像を保存するディレクトリ")
   parser.add_argument("--rotate", action="store_true", help="rotate images to align faces / 顔が正立するように画像を回転する")
   parser.add_argument("--resize_fit", action="store_true",
-                      help="resize to fit smaller side / 画像の短辺がcrop_sizeにあうようにリサイズする")
+                      help="resize to fit smaller side after cropping / 切り出し後の画像の短辺がcrop_sizeにあうようにリサイズする")
   parser.add_argument("--resize_face_size", type=int, default=None,
                       help="resize image before cropping by face size / 切り出し前に顔がこのサイズになるようにリサイズする")
   parser.add_argument("--crop_size", type=str, default=None,
                       help="crop images with 'width,height' pixels, face centered / 顔を中心として'幅,高さ'のサイズで切り出す")
+  parser.add_argument("--crop_ratio", type=str, default=None,
+                      help="crop images with 'horizontal,vertical' ratio to face, face centered / 顔を中心として顔サイズの'幅倍率,高さ倍率'のサイズで切り出す")
   parser.add_argument("--debug", action="store_true", help="render rect for face / 処理後画像の顔位置に矩形を描画します")
   args = parser.parse_args()
 

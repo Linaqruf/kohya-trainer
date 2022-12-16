@@ -5,30 +5,47 @@ import argparse
 import csv
 import glob
 import os
-import json
 
 from PIL import Image
+import cv2
 from tqdm import tqdm
 import numpy as np
 from tensorflow.keras.models import load_model
-from Utils import dbimutils
-
+from huggingface_hub import hf_hub_download
 
 # from wd14 tagger
 IMAGE_SIZE = 448
 
+WD14_TAGGER_REPO = 'SmilingWolf/wd-v1-4-vit-tagger'
+FILES = ["keras_metadata.pb", "saved_model.pb", "selected_tags.csv"]
+SUB_DIR = "variables"
+SUB_DIR_FILES = ["variables.data-00000-of-00001", "variables.index"]
+CSV_FILE = FILES[-1]
+
 
 def main(args):
+  # hf_hub_downloadをそのまま使うとsymlink関係で問題があるらしいので、キャッシュディレクトリとforce_filenameを指定してなんとかする
+  # depreacatedの警告が出るけどなくなったらその時
+  # https://github.com/toriato/stable-diffusion-webui-wd14-tagger/issues/22
+  if not os.path.exists(args.model_dir) or args.force_download:
+    print("downloading wd14 tagger model from hf_hub")
+    for file in FILES:
+      hf_hub_download(args.repo_id, file, cache_dir=args.model_dir, force_download=True, force_filename=file)
+    for file in SUB_DIR_FILES:
+      hf_hub_download(args.repo_id, file, subfolder=SUB_DIR, cache_dir=os.path.join(
+          args.model_dir, SUB_DIR), force_download=True, force_filename=file)
+
+  # 画像を読み込む
   image_paths = glob.glob(os.path.join(args.train_data_dir, "*.jpg")) + \
       glob.glob(os.path.join(args.train_data_dir, "*.png")) + glob.glob(os.path.join(args.train_data_dir, "*.webp"))
   print(f"found {len(image_paths)} images.")
 
   print("loading model and labels")
-  model = load_model(args.model)
+  model = load_model(args.model_dir)
 
   # label_names = pd.read_csv("2022_0000_0899_6549/selected_tags.csv")
   # 依存ライブラリを増やしたくないので自力で読むよ
-  with open(args.tag_csv, "r", encoding="utf-8") as f:
+  with open(os.path.join(args.model_dir, CSV_FILE), "r", encoding="utf-8") as f:
     reader = csv.reader(f)
     l = [row for row in reader]
     header = l[0]             # tag_id,name,category,count
@@ -68,16 +85,33 @@ def main(args):
 
   b_imgs = []
   for image_path in tqdm(image_paths):
-    img = dbimutils.smart_imread(image_path)
-    img = dbimutils.smart_24bit(img)
-    img = dbimutils.make_square(img, IMAGE_SIZE)
-    img = dbimutils.smart_resize(img, IMAGE_SIZE)
+    img = Image.open(image_path)                  # cv2は日本語ファイル名で死ぬのとモード変換したいのでpillowで開く
+    if img.mode != 'RGB':
+      img = img.convert("RGB")
+    img = np.array(img)
+    img = img[:, :, ::-1]                         # RGB->BGR
+
+    # pad to square
+    size = max(img.shape[0:2])
+    pad_x = size - img.shape[1]
+    pad_y = size - img.shape[0]
+    pad_l = pad_x // 2
+    pad_t = pad_y // 2
+    img = np.pad(img, ((pad_t, pad_y - pad_t), (pad_l, pad_x - pad_l), (0, 0)), mode='constant', constant_values=255)
+
+    interp = cv2.INTER_AREA if size > IMAGE_SIZE else cv2.INTER_LANCZOS4
+    img = cv2.resize(img, (IMAGE_SIZE, IMAGE_SIZE), interpolation=interp)
+    # cv2.imshow("img", img)
+    # cv2.waitKey()
+    # cv2.destroyAllWindows()
+
     img = img.astype(np.float32)
     b_imgs.append((image_path, img))
 
     if len(b_imgs) >= args.batch_size:
       run_batch(b_imgs)
       b_imgs.clear()
+
   if len(b_imgs) > 0:
     run_batch(b_imgs)
 
@@ -87,10 +121,12 @@ def main(args):
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument("train_data_dir", type=str, help="directory for train images / 学習画像データのディレクトリ")
-  parser.add_argument("--model", type=str, default="networks/ViTB16_11_03_2022_07h05m53s",
-                      help="model path to load / 読み込むモデルファイル")
-  parser.add_argument("--tag_csv", type=str, default="2022_0000_0899_6549/selected_tags.csv",
-                      help="csv file for tags / タグ一覧のCSVファイル")
+  parser.add_argument("--repo_id", type=str, default=WD14_TAGGER_REPO,
+                      help="repo id for wd14 tagger on Hugging Face / Hugging Faceのwd14 taggerのリポジトリID")
+  parser.add_argument("--model_dir", type=str, default="wd14_tagger_model",
+                      help="directory to store wd14 tagger model / wd14 taggerのモデルを格納するディレクトリ")
+  parser.add_argument("--force_download", action='store_true',
+                      help="force downloading wd14 tagger models / wd14 taggerのモデルを再ダウンロードします")
   parser.add_argument("--thresh", type=float, default=0.35, help="threshold of confidence to add a tag / タグを追加するか判定する閾値")
   parser.add_argument("--batch_size", type=int, default=1, help="batch size in inference / 推論時のバッチサイズ")
   parser.add_argument("--caption_extention", type=str, default=None,
