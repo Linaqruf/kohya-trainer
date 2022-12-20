@@ -7,7 +7,8 @@
 # v6: refactor to use model util, load VAE without vae folder, support safe tensors
 # v7: add use_original_file_name and iter_same_seed option, change vgg16 guide input image size, 
 # Diffusers 0.10.0 (support new schedulers (dpm_2, dpm_2_a, heun, dpmsingle), supports all scheduler in v-prediction)
-# v8: accept wildcard for ckpt name (when only one file is matched), fix a bug app crushes because PIL image doesn't have filename attr sometimes
+# v8: accept wildcard for ckpt name (when only one file is matched), fix a bug app crushes because PIL image doesn't have filename attr sometimes,
+# sort file names, fix an issue in img2img when prompt from metadata with images_per_prompt>1
 
 # Copyright 2022 kohya_ss @kohya_ss
 #
@@ -2043,7 +2044,8 @@ def main(args):
       paths = [path]
     else:
       paths = glob.glob(os.path.join(path, "*.png")) + glob.glob(os.path.join(path, "*.jpg")) + \
-          glob.glob(os.path.join(path, "*.jpeg"))
+          glob.glob(os.path.join(path, "*.jpeg")) + glob.glob(os.path.join(path, "*.webp"))
+      paths.sort()
 
     images = []
     for p in paths:
@@ -2052,6 +2054,7 @@ def main(args):
         print(f"convert image to RGB from {image.mode}: {p}")
         image = image.convert("RGB")
       images.append(image)
+    
     return images
 
   def resize_images(imgs, size):
@@ -2089,12 +2092,7 @@ def main(args):
           prompt += " --n " + img.text['negative-prompt']
         prompt_list.append(prompt)
 
-    # 指定回数だけ繰り返す
-    l = []
-    for p in prompt_list:
-      l.extend([p] * args.images_per_prompt)
-    prompt_list = l
-
+    # プロンプトと画像を一致させるため指定回数だけ繰り返す（画像を増幅する）
     l = []
     for im in init_images:
       l.extend([im] * args.images_per_prompt)
