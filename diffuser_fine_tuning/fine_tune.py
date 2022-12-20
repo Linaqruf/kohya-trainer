@@ -5,6 +5,7 @@
 # v6: model_util update
 # v7: support Diffusers 0.10.0 (v-parameterization training, safetensors in Diffusers) and accelerate 0.15.0, support full path in metadata
 # v8: experimental full fp16 training.
+# v9: add keep_tokens and save_model_as option, flip augmentation
 
 # このスクリプトのライセンスは、train_dreambooth.pyと同じくApache License 2.0とします
 # License:
@@ -68,7 +69,7 @@ def collate_fn(examples):
 
 
 class FineTuningDataset(torch.utils.data.Dataset):
-  def __init__(self, metadata, train_data_dir, batch_size, tokenizer, max_token_length, shuffle_caption, dataset_repeats, debug) -> None:
+  def __init__(self, metadata, train_data_dir, batch_size, tokenizer, max_token_length, shuffle_caption, shuffle_keep_tokens, dataset_repeats, debug) -> None:
     super().__init__()
 
     self.metadata = metadata
@@ -77,6 +78,7 @@ class FineTuningDataset(torch.utils.data.Dataset):
     self.tokenizer: CLIPTokenizer = tokenizer
     self.max_token_length = max_token_length
     self.shuffle_caption = shuffle_caption
+    self.shuffle_keep_tokens = shuffle_keep_tokens
     self.debug = debug
 
     self.tokenizer_max_length = self.tokenizer.model_max_length if max_token_length is None else max_token_length + 2
@@ -132,10 +134,20 @@ class FineTuningDataset(torch.utils.data.Dataset):
       random.shuffle(bucket)
 
   def image_key_to_npz_file(self, image_key):
-    npz_file = os.path.splitext(image_key)[0] + '.npz'
-    if os.path.exists(npz_file):
-      return npz_file
-    return os.path.join(self.train_data_dir, image_key + '.npz')
+    npz_file_norm = os.path.splitext(image_key)[0] + '.npz'
+    if os.path.exists(npz_file_norm):
+      if random.random() < .5:
+        npz_file_flip = os.path.splitext(image_key)[0] + '_flip.npz'
+        if os.path.exists(npz_file_flip):
+          return npz_file_flip
+      return npz_file_norm
+
+    npz_file_norm = os.path.join(self.train_data_dir, image_key + '.npz')
+    if random.random() < .5:
+      npz_file_flip = os.path.join(self.train_data_dir, image_key + '_flip.npz')
+      if os.path.exists(npz_file_flip):
+        return npz_file_flip
+    return npz_file_norm
 
   def load_latent(self, image_key):
     return np.load(self.image_key_to_npz_file(image_key))['arr_0']
@@ -168,7 +180,14 @@ class FineTuningDataset(torch.utils.data.Dataset):
 
       if self.shuffle_caption:
         tokens = caption.strip().split(",")
-        random.shuffle(tokens)
+        if self.shuffle_keep_tokens is None:
+          random.shuffle(tokens)
+        else:
+          if len(tokens) > self.shuffle_keep_tokens:
+            keep_tokens = tokens[:self.shuffle_keep_tokens]
+            tokens = tokens[self.shuffle_keep_tokens:]
+            random.shuffle(tokens)
+            tokens = keep_tokens + tokens
         caption = ",".join(tokens).strip()
 
       captions.append(caption)
@@ -237,8 +256,21 @@ def train(args):
     print("v2 with clip_skip will be unexpected / v2でclip_skipを使用することは想定されていません")
 
   # モデル形式のオプション設定を確認する
-  # v11からDiffUsersから直接落としてくるのもOK（ただし認証がいるやつは未対応）、またv11からDiffUsersも途中保存に対応した
-  use_stable_diffusion_format = os.path.isfile(args.pretrained_model_name_or_path)
+  load_stable_diffusion_format = os.path.isfile(args.pretrained_model_name_or_path)
+
+  if load_stable_diffusion_format:
+    src_stable_diffusion_ckpt = args.pretrained_model_name_or_path
+    src_diffusers_model_path = None
+  else:
+    src_stable_diffusion_ckpt = None
+    src_diffusers_model_path = args.pretrained_model_name_or_path
+
+  if args.save_model_as is None:
+    save_stable_diffusion_format = load_stable_diffusion_format
+    use_safetensors = args.use_safetensors
+  else:
+    save_stable_diffusion_format = args.save_model_as.lower() == 'ckpt' or args.save_model_as.lower() == 'safetensors'
+    use_safetensors = args.use_safetensors or ("safetensors" in args.save_model_as.lower())
 
   # 乱数系列を初期化する
   if args.seed is not None:
@@ -266,7 +298,8 @@ def train(args):
   # datasetを用意する
   print("prepare dataset")
   train_dataset = FineTuningDataset(metadata, args.train_data_dir, args.train_batch_size,
-                                    tokenizer, args.max_token_length, args.shuffle_caption, args.dataset_repeats, args.debug_dataset)
+                                    tokenizer, args.max_token_length, args.shuffle_caption, args.keep_tokens,
+                                    args.dataset_repeats, args.debug_dataset)
 
   print(f"Total dataset length / データセットの長さ: {len(train_dataset)}")
   print(f"Total images / 画像数: {train_dataset.images_count}")
@@ -330,22 +363,25 @@ def train(args):
     save_dtype = torch.float32
 
   # モデルを読み込む
-  if use_stable_diffusion_format:
+  if load_stable_diffusion_format:
     print("load StableDiffusion checkpoint")
-    text_encoder, _, unet = model_util.load_models_from_stable_diffusion_checkpoint(args.v2, args.pretrained_model_name_or_path)
+    text_encoder, vae, unet = model_util.load_models_from_stable_diffusion_checkpoint(args.v2, args.pretrained_model_name_or_path)
   else:
     print("load Diffusers pretrained models")
     pipe = StableDiffusionPipeline.from_pretrained(args.pretrained_model_name_or_path, tokenizer=None, safety_checker=None)
     # , torch_dtype=weight_dtype) ここでtorch_dtypeを指定すると学習時にエラーになる
     text_encoder = pipe.text_encoder
     unet = pipe.unet
+    vae = pipe.vae
     del pipe
+  vae.to("cpu")                     # 保存時にしか使わないので、メモリを開けるためCPUに移しておく
 
   # Diffusers版のxformers使用フラグを設定する関数
   def set_diffusers_xformers_flag(model, valid):
     #   model.set_use_memory_efficient_attention_xformers(valid)            # 次のリリースでなくなりそう
     # pipeが自動で再帰的にset_use_memory_efficient_attention_xformersを探すんだって(;´Д｀)
     # U-Netだけ使う時にはどうすればいいのか……仕方ないからコピって使うか
+    # 0.10.2でなんか巻き戻って個別に指定するようになった(;^ω^)
 
     # Recursively walk through all the children.
     # Any children which exposes the set_use_memory_efficient_attention_xformers method
@@ -624,18 +660,17 @@ def train(args):
       if (epoch + 1) % args.save_every_n_epochs == 0 and (epoch + 1) < num_train_epochs:
         print("saving checkpoint.")
         os.makedirs(args.output_dir, exist_ok=True)
-        ckpt_file = os.path.join(args.output_dir, model_util.get_epoch_ckpt_name(args.use_safetensors, epoch + 1))
+        ckpt_file = os.path.join(args.output_dir, model_util.get_epoch_ckpt_name(use_safetensors, epoch + 1))
 
         if fine_tuning:
-          if use_stable_diffusion_format:
-            model_util.save_stable_diffusion_checkpoint(
-                args.v2, ckpt_file, unwrap_model(text_encoder), unwrap_model(unet),
-                args.pretrained_model_name_or_path, epoch + 1, global_step, save_dtype)
+          if save_stable_diffusion_format:
+            model_util.save_stable_diffusion_checkpoint(args.v2, ckpt_file, unwrap_model(text_encoder), unwrap_model(unet),
+                                                        src_stable_diffusion_ckpt, epoch + 1, global_step, save_dtype, vae)
           else:
             out_dir = os.path.join(args.output_dir, EPOCH_DIFFUSERS_DIR_NAME.format(epoch + 1))
             os.makedirs(out_dir, exist_ok=True)
-            model_util.save_diffusers_checkpoint(args.v2, out_dir, unwrap_model(text_encoder),
-                                                 unwrap_model(unet), args.pretrained_model_name_or_path, use_safetensors=args.use_safetensors)
+            model_util.save_diffusers_checkpoint(args.v2, out_dir, unwrap_model(text_encoder), unwrap_model(unet),
+                                                 src_diffusers_model_path, vae=vae, use_safetensors=use_safetensors)
         else:
           save_hypernetwork(ckpt_file, unwrap_model(hypernetwork))
 
@@ -661,21 +696,21 @@ def train(args):
 
   if is_main_process:
     os.makedirs(args.output_dir, exist_ok=True)
+    ckpt_file = os.path.join(args.output_dir, model_util.get_last_ckpt_name(use_safetensors))
+
     if fine_tuning:
-      if use_stable_diffusion_format:
-        ckpt_file = os.path.join(args.output_dir, model_util.get_last_ckpt_name(args.use_safetensors))
+      if save_stable_diffusion_format:
         print(f"save trained model as StableDiffusion checkpoint to {ckpt_file}")
-        model_util.save_stable_diffusion_checkpoint(
-            args.v2, ckpt_file, text_encoder, unet, args.pretrained_model_name_or_path, epoch, global_step, save_dtype)
+        model_util.save_stable_diffusion_checkpoint(args.v2, ckpt_file, text_encoder, unet,
+                                                    src_stable_diffusion_ckpt, epoch, global_step, save_dtype, vae)
       else:
         # Create the pipeline using using the trained modules and save it.
         print(f"save trained model as Diffusers to {args.output_dir}")
         out_dir = os.path.join(args.output_dir, LAST_DIFFUSERS_DIR_NAME)
         os.makedirs(out_dir, exist_ok=True)
         model_util.save_diffusers_checkpoint(args.v2, out_dir, text_encoder, unet,
-                                             args.pretrained_model_name_or_path, use_safetensors=args.use_safetensors)
+                                             src_diffusers_model_path, vae=vae, use_safetensors=use_safetensors)
     else:
-      ckpt_file = os.path.join(args.output_dir, model_util.get_last_ckpt_name(args.use_safetensors))
       print(f"save trained model to {ckpt_file}")
       save_hypernetwork(ckpt_file, hypernetwork)
 
@@ -963,12 +998,18 @@ if __name__ == '__main__':
   parser.add_argument("--in_json", type=str, default=None, help="metadata file to input / 読みこむメタデータファイル")
   parser.add_argument("--shuffle_caption", action="store_true",
                       help="shuffle comma-separated caption when fine tuning / fine tuning時にコンマで区切られたcaptionの各要素をshuffleする")
+  parser.add_argument("--keep_tokens", type=int, default=None,
+                      help="keep heading N tokens when shuffling caption tokens / captionのシャッフル時に、先頭からこの個数のトークンをシャッフルしないで残す")
   parser.add_argument("--train_data_dir", type=str, default=None, help="directory for train images / 学習画像データのディレクトリ")
   parser.add_argument("--dataset_repeats", type=int, default=None, help="num times to repeat dataset / 学習にデータセットを繰り返す回数")
   parser.add_argument("--output_dir", type=str, default=None,
                       help="directory to output trained model, save as same format as input / 学習後のモデル出力先ディレクトリ（入力と同じ形式で保存）")
+  parser.add_argument("--save_precision", type=str, default=None,
+                      choices=[None, "float", "fp16", "bf16"], help="precision in saving (available in StableDiffusion checkpoint) / 保存時に精度を変更して保存する（StableDiffusion形式での保存時のみ有効）")
+  parser.add_argument("--save_model_as", type=str, default=None, choices=[None, "ckpt", "safetensors", "diffusers", "diffusers_safetensors"],
+                      help="format to save the model (default is same to original) / モデル保存時の形式（未指定時は元モデルと同じ）")
   parser.add_argument("--use_safetensors", action='store_true',
-                      help="use safetensors format to save / checkpoint、モデルをsafetensors形式で保存する")
+                      help="use safetensors format to save (if save_model_as is not specified) / checkpoint、モデルをsafetensors形式で保存する（save_model_as未指定時）")
   parser.add_argument("--train_text_encoder", action="store_true", help="train text encoder / text encoderも学習する")
   parser.add_argument("--hypernetwork_module", type=str, default=None,
                       help='train hypernetwork instead of fine tuning, module to use / fine tuningの代わりにHypernetworkの学習をする場合、そのモジュール')
@@ -1002,8 +1043,6 @@ if __name__ == '__main__':
   parser.add_argument("--mixed_precision", type=str, default="no",
                       choices=["no", "fp16", "bf16"], help="use mixed precision / 混合精度を使う場合、その精度")
   parser.add_argument("--full_fp16", action="store_true", help="fp16 training including gradients / 勾配も含めてfp16で学習する")
-  parser.add_argument("--save_precision", type=str, default=None,
-                      choices=[None, "float", "fp16", "bf16"], help="precision in saving (available in StableDiffusion checkpoint) / 保存時に精度を変更して保存する（StableDiffusion形式での保存時のみ有効）")
   parser.add_argument("--clip_skip", type=int, default=None,
                       help="use output of nth layer from back of text encoder (n>=1) / text encoderの後ろからn番目の層の出力を用いる（nは1以上）")
   parser.add_argument("--debug_dataset", action="store_true",

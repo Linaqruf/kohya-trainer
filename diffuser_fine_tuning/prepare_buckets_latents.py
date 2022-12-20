@@ -36,7 +36,8 @@ def get_latents(vae, images, weight_dtype):
 
 
 def main(args):
-  image_paths = glob.glob(os.path.join(args.train_data_dir, "*.jpg")) + glob.glob(os.path.join(args.train_data_dir, "*.png"))
+  image_paths = glob.glob(os.path.join(args.train_data_dir, "*.jpg")) + \
+      glob.glob(os.path.join(args.train_data_dir, "*.png")) + glob.glob(os.path.join(args.train_data_dir, "*.webp"))
   print(f"found {len(image_paths)} images.")
 
   if os.path.exists(args.in_json):
@@ -69,7 +70,7 @@ def main(args):
   buckets_imgs = [[] for _ in range(len(bucket_resos))]
   bucket_counts = [0 for _ in range(len(bucket_resos))]
   img_ar_errors = []
-  for i, image_path in enumerate(tqdm(image_paths)):
+  for i, image_path in enumerate(tqdm(image_paths, smoothing=0.0)):
     image_key = image_path if args.full_path else os.path.splitext(os.path.basename(image_path))[0]
     if image_key not in metadata:
       metadata[image_key] = {}
@@ -131,6 +132,13 @@ def main(args):
         for (image_key, reso, _), latent in zip(bucket, latents):
           np.savez(os.path.join(args.train_data_dir, os.path.splitext(os.path.basename(image_key))[0]), latent)
 
+        # flip
+        if args.flip_aug:
+          latents = get_latents(vae, [img[:, ::-1].copy() for _, _, img in bucket], weight_dtype)   # copyがないとTensor変換できない
+
+          for (image_key, reso, _), latent in zip(bucket, latents):
+            np.savez(os.path.join(args.train_data_dir, os.path.splitext(os.path.basename(image_key))[0] + '_flip'), latent)
+
         bucket.clear()
 
   for i, (reso, count) in enumerate(zip(bucket_resos, bucket_counts)):
@@ -162,6 +170,8 @@ if __name__ == '__main__':
                       choices=["no", "fp16", "bf16"], help="use mixed precision / 混合精度を使う場合、その精度")
   parser.add_argument("--full_path", action="store_true",
                       help="use full path as image-key in metadata (supports multiple directories) / メタデータで画像キーをフルパスにする（複数の学習画像ディレクトリに対応）")
+  parser.add_argument("--flip_aug", action="store_true",
+                      help="flip augmentation, save latents for flipped images / 左右反転した画像もlatentを取得、保存する")
 
   args = parser.parse_args()
   main(args)

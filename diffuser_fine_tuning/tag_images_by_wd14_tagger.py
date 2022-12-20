@@ -84,7 +84,7 @@ def main(args):
           print(image_path, tag_text)
 
   b_imgs = []
-  for image_path in tqdm(image_paths):
+  for image_path in tqdm(image_paths, smoothing=0.0):
     img = Image.open(image_path)                  # cv2は日本語ファイル名で死ぬのとモード変換したいのでpillowで開く
     if img.mode != 'RGB':
       img = img.convert("RGB")
