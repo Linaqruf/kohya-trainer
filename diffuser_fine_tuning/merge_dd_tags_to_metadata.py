@@ -10,7 +10,8 @@ from tqdm import tqdm
 
 
 def main(args):
-  image_paths = glob.glob(os.path.join(args.train_data_dir, "*.jpg")) + glob.glob(os.path.join(args.train_data_dir, "*.png"))
+  image_paths = glob.glob(os.path.join(args.train_data_dir, "*.jpg")) + \
+      glob.glob(os.path.join(args.train_data_dir, "*.png")) + glob.glob(os.path.join(args.train_data_dir, "*.webp"))
   print(f"found {len(image_paths)} images.")
 
   if args.in_json is None and os.path.isfile(args.out_json):

@@ -1,4 +1,4 @@
-# Kohya Trainer V8 - VRAM 12GB
+# Kohya Trainer V9 - VRAM 12GB
 <a target="_blank" href="https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/kohya-trainer.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
@@ -17,6 +17,9 @@ You can find the latest update to the notebook [here](https://github.com/Linaqru
 - By default, does not train Text Encoder for fine tuning of the entire model, but option to train Text Encoder is available.
 - Ability to make learning even more flexible than with DreamBooth by preparing a certain number of images (several hundred or more seems to be desirable).
 
+## Kohya S. Official Github Account
+- [kohya_ss](https://github.com/kohya-ss)
+
 ## Run locally 
 Please refer to [bmaltais's repo](https://github.com/bmaltais) if you want to run it locally on your terminal
 - bmaltais's [kohya_ss](https://github.com/bmaltais/kohya_ss) (dreambooth)
@@ -33,6 +36,11 @@ Please refer to [bmaltais's repo](https://github.com/bmaltais) if you want to ru
 - [merge_block_weighted](https://note.com/kohya_ss/n/n9a485a066d5b)
 
 ## Change Logs:
+
+##### v9 (17/12):
+- Added the `save_model_as` option to `fine_tune.py`, which allows you to save the model in any format.
+- Added the `keep_tokens` option to `fine_tune.py`, which allows you to fix the first n tokens of the caption and not shuffle them.
+- Added support for left-right flipping augmentation in `prepare_buckets_latents.py` and `fine_tune.py` with the `flip_aug` option.
 
 ##### v8 (13/12):
 - Added support for training with fp16 gradients (experimental feature). This allows training with 8GB VRAM on SD1.x. See "Training with fp16 gradients (experimental feature)" for details.

@@ -977,7 +977,7 @@ def convert_text_encoder_state_dict_to_sd_v2(checkpoint, make_dummy_weights=Fals
     keys = list(new_sd.keys())
     for key in keys:
       if key.startswith("transformer.resblocks.22."):
-        new_sd[key.replace(".22.", ".23.")] = new_sd[key]
+        new_sd[key.replace(".22.", ".23.")] = new_sd[key].clone()          # copyしないとsafetensorsの保存で落ちる
 
     # Diffusersに含まれない重みを作っておく
     new_sd['text_projection'] = torch.ones((1024, 1024), dtype=new_sd[keys[0]].dtype, device=new_sd[keys[0]].device)
@@ -1059,8 +1059,8 @@ def save_diffusers_checkpoint(v2, output_dir, text_encoder, unet, pretrained_mod
     else:
       pretrained_model_name_or_path = DIFFUSERS_REF_MODEL_ID_V1
 
-  scheduler = DDIMScheduler.from_pretrained(pretrained_model_name_or_path, subfolder="scheduler"),
-  tokenizer = CLIPTokenizer.from_pretrained(pretrained_model_name_or_path, subfolder="tokenizer"),
+  scheduler = DDIMScheduler.from_pretrained(pretrained_model_name_or_path, subfolder="scheduler")
+  tokenizer = CLIPTokenizer.from_pretrained(pretrained_model_name_or_path, subfolder="tokenizer")
   if vae is None:
     vae = AutoencoderKL.from_pretrained(pretrained_model_name_or_path, subfolder="vae")
 

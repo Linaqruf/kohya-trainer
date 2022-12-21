@@ -19,7 +19,8 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 def main(args):
-  image_paths = glob.glob(os.path.join(args.train_data_dir, "*.jpg")) + glob.glob(os.path.join(args.train_data_dir, "*.png"))
+  image_paths = glob.glob(os.path.join(args.train_data_dir, "*.jpg")) + \
+      glob.glob(os.path.join(args.train_data_dir, "*.png")) + glob.glob(os.path.join(args.train_data_dir, "*.webp"))
   print(f"found {len(image_paths)} images.")
 
   print(f"loading BLIP caption: {args.caption_weights}")
@@ -54,7 +55,7 @@ def main(args):
           print(image_path, caption)
 
   b_imgs = []
-  for image_path in tqdm(image_paths):
+  for image_path in tqdm(image_paths, smoothing=0.0):
     raw_image = Image.open(image_path)
     if raw_image.mode != "RGB":
       print(f"convert image mode {raw_image.mode} to RGB: {image_path}")
