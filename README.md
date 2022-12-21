@@ -1,4 +1,8 @@
 # Kohya Trainer V9 - VRAM 12GB
+<a target="_blank" href="https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/kohya-trainer.ipynb">
+  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
+</a>
+
 ### The Best Way for People Without Good GPUs to Fine-Tune the Stable Diffusion Model
 
 This notebook has been adapted for use in Google Colab based on the [Kohya Guide](https://note.com/kohya_ss/n/nbf7ce8d80f29#c9d7ee61-5779-4436-b4e6-9053741c46bb). </br>
