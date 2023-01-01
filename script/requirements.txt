@@ -1,0 +1,11 @@
+accelerate==0.15.0
+transformers>=4.21.0
+ftfy
+albumentations
+opencv-python
+einops
+diffusers[torch]==0.10.2
+pytorch_lightning
+bitsandbytes
+tensorboard
+safetensors
