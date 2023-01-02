@@ -1,4 +1,4 @@
-# Kohya Trainer V9 - VRAM 12GB
+# Kohya Trainer V10 - VRAM 12GB
 <a target="_blank" href="https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/kohya-trainer.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
@@ -37,6 +37,25 @@ Please refer to [bmaltais's repo](https://github.com/bmaltais) if you want to ru
 
 ## Change Logs:
 
+#### 2023 
+##### v10 (02/01) separate release
+
+- Added a function to automatically download the BLIP weight in `make_caption.py`
+- Added functions for LoRA training and generation
+- Fixed issue where text encoder training was not stopped
+- Fixed conversion error for v1 Diffusers->ckpt in `convert_diffusers20_original_sd.py`
+- Fixed npz file name for images with dots in `prepare_buckets_latents.py`
+
+Colab UI changes:
+- Integrated the repository's format with kohya-ss/sd-script to facilitate merging
+- You can no longer choose older script versions in the clone cell because the new format does not support it
+- The requirements for both blip and wd tagger have been merged into one requirements.txt file
+- The blip cell has been simplified because `make_caption.py` will now automatically download the BLIP weight, as will the wd tagger
+- A list of sdv2 models has been added to the "download pretrained model" cell
+- The "v2" option has been added to the bucketing and training cells
+- An image generation cell using `gen_img_diffusers.py` has been added below the training cell
+
+#### 2022
 ##### v9 (17/12):
 - Added the `save_model_as` option to `fine_tune.py`, which allows you to save the model in any format.
 - Added the `keep_tokens` option to `fine_tune.py`, which allows you to fix the first n tokens of the caption and not shuffle them.
