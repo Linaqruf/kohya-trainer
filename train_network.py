@@ -545,16 +545,25 @@ class FineTuningDataset(BaseDataset):
     self.train_data_dir = train_data_dir
     self.batch_size = batch_size
 
+    def glob_images(dir, base):
+      img_paths = []
+      for ext in [".png", ".jpg", ".webp"]:
+        img_paths.extend(glob.glob(os.path.join(dir, base + ext)))
+        if base == '*':
+          img_paths.extend(glob.glob(os.path.join(glob.escape(dir), base + ext)))
+        else:
+          img_paths.extend(glob.glob(glob.escape(os.path.join(dir, base + ext))))
+      return img_paths
+
     for image_key, img_md in metadata.items():
       # path情報を作る
       if os.path.exists(image_key):
         abs_path = image_key
       else:
         # わりといい加減だがいい方法が思いつかん
-        abs_path = (glob.glob(glob.escape(os.path.join(train_data_dir, f"{image_key}.png"))) + glob.glob(glob.escape(os.path.join(train_data_dir, f"{image_key}.jpg"))) +
-                    glob.glob(glob.escape(os.path.join(train_data_dir, f"{image_key}.webp"))))
-        assert len(abs_path) >= 1, f"no image / 画像がありません: {abs_path}"
-        abs_path = abs_path[0]
+        abs_paths = (glob_images(train_data_dir, image_key))
+        assert len(abs_paths) >= 1, f"no image / 画像がありません: {abs_paths}"
+        abs_path = abs_paths[0]
 
       caption = img_md.get('caption')
       tags = img_md.get('tags')
