@@ -551,8 +551,8 @@ class FineTuningDataset(BaseDataset):
         abs_path = image_key
       else:
         # わりといい加減だがいい方法が思いつかん
-        abs_path = (glob.glob(os.path.join(train_data_dir, f"{image_key}.png")) + glob.glob(os.path.join(train_data_dir, f"{image_key}.jpg")) +
-                    glob.glob(os.path.join(train_data_dir, f"{image_key}.webp")))
+        abs_path = (glob.glob(glob.escape(os.path.join(train_data_dir, f"{image_key}.png"))) + glob.glob(glob.escape(os.path.join(train_data_dir, f"{image_key}.jpg"))) +
+                    glob.glob(glob.escape(os.path.join(train_data_dir, f"{image_key}.webp"))))
         assert len(abs_path) >= 1, f"no image / 画像がありません: {abs_path}"
         abs_path = abs_path[0]
 
