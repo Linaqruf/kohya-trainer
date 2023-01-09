@@ -561,7 +561,7 @@ class FineTuningDataset(BaseDataset):
         abs_path = image_key
       else:
         # わりといい加減だがいい方法が思いつかん
-        abs_paths = (glob_images(train_data_dir, image_key))
+        abs_paths = glob_images(train_data_dir, image_key)
         assert len(abs_paths) >= 1, f"no image / 画像がありません: {abs_paths}"
         abs_path = abs_paths[0]
 
