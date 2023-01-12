@@ -6,7 +6,7 @@ opencv-python
 einops
 diffusers[torch]==0.10.2
 pytorch_lightning
-bitsandbytes
+bitsandbytes==0.35.0
 tensorboard
 safetensors==0.2.6
 # for BLIP captioning
