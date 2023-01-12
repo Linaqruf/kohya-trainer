@@ -6,12 +6,9 @@ opencv-python
 einops
 diffusers[torch]==0.10.2
 pytorch_lightning
-bitsandbytes==0.35.0
+bitsandbytes
 tensorboard
 safetensors==0.2.6
-gradio
-altair
-easygui
 # for BLIP captioning
 requests
 timm==0.4.12
