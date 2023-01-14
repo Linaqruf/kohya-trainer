@@ -1110,7 +1110,7 @@ def load_vae(vae_id, dtype):
   else:
     # StableDiffusion
     vae_model = torch.load(vae_id, map_location="cpu")
-    vae_sd = vae_model['state_dict']
+    vae_sd = vae_model['state_dict'] if 'state_dict' in vae_model else vae_model
 
     # vae only or full model
     full_model = False
