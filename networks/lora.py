@@ -6,7 +6,7 @@
 import math
 import os
 import torch
-
+from typing import List
 
 class LoRAModule(torch.nn.Module):
   """
@@ -63,7 +63,7 @@ class LoRANetwork(torch.nn.Module):
     self.lora_dim = lora_dim
 
     # create module instances
-    def create_modules(prefix, root_module: torch.nn.Module, target_replace_modules) -> list[LoRAModule]:
+    def create_modules(prefix, root_module: torch.nn.Module, target_replace_modules) -> List[LoRAModule]:
       loras = []
       for name, module in root_module.named_modules():
         if module.__class__.__name__ in target_replace_modules:
