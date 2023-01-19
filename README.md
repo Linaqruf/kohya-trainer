@@ -1,4 +1,19 @@
-# Kohya Trainer V10 - VRAM 12GB
+# Update
+
+##### v11 (19/1/2023):
+__What Changes?__
+- Reformat notebook, 
+  - Added `%store` IPython magic command to store important variable
+  - Now you can change the active directory only by editing directory path in `1.1. Clone Kohya Trainer` cell, and save it using `%store` magic command.
+  - Deleted `unzip` cell and adjust `download zip` cell to do auto unzip as well if it detect path startswith /content/
+  - Added `--flip_aug` to Buckets and Latents cell.
+  - Added `--output_name (your-project)` cell to save Trained Model with custom nam.
+  - Added ability to auto compress `train_data_dir`, `last-state` and `training_logs` before upload them to Huggingface
+- Added `colab_ram_patch` as temporary fix for newest version of Colab after Ubuntu update to `load Stable Diffusion model in GPU instead of RAM`
+Training script Changes(__kohya-ss/sd-script_)
+- Please read [release version 0.3.0](https://github.com/kohya-ss/sd-scripts/releases/tag/v0.3.0) for recent updates.
+
+# Kohya Trainer V11 - VRAM 12GB
 <a target="_blank" href="https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/kohya-trainer.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
