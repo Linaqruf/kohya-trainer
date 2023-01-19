@@ -10,7 +10,8 @@ __What Changes?__
   - Added `--output_name (your-project)` cell to save Trained Model with custom nam.
   - Added ability to auto compress `train_data_dir`, `last-state` and `training_logs` before upload them to Huggingface
 - Added `colab_ram_patch` as temporary fix for newest version of Colab after Ubuntu update to `load Stable Diffusion model in GPU instead of RAM`
-Training script Changes(__kohya-ss/sd-script_)
+
+Training script Changes([kohya_ss](https://github.com/kohya-ss))
 - Please read [release version 0.3.0](https://github.com/kohya-ss/sd-scripts/releases/tag/v0.3.0) for recent updates.
 
 # Kohya Trainer V11 - VRAM 12GB
