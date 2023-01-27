@@ -1,6 +1,6 @@
 # Kohya Trainer V11 - VRAM 12GB
-<a target="_blank" href="https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/kohya-trainer.ipynb">
- <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> <img src="https://visitor-badge.glitch.me/badge?page_id=linaqruf.kohya-repo-trainer" alt="visitor badge"/>
+![GitHub Repo stars](https://img.shields.io/github/stars/Linaqruf/kohya-trainer?style=social)</a><a target="_blank" href="https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/kohya-trainer.ipynb">
+<img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> <img src="https://visitor-badge.glitch.me/badge?page_id=linaqruf.kohya-repo-trainer" alt="visitor badge"/>
 
 ### The Best Way for People Without Good GPUs to Fine-Tune the Stable Diffusion Model
 
