@@ -1,4 +1,4 @@
-# Kohya Trainer V11 - VRAM 12GB
+# Kohya Trainer V11.5
 ![GitHub Repo stars](https://img.shields.io/github/stars/Linaqruf/kohya-trainer?style=social)</a><a target="_blank" href="https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/kohya-trainer.ipynb">
 <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> <img src="https://visitor-badge.glitch.me/badge?page_id=linaqruf.kohya-repo-trainer" alt="visitor badge"/>
 
@@ -7,6 +7,26 @@
 This notebook has been adapted for use in Google Colab based on the [Kohya Guide](https://note.com/kohya_ss/n/nbf7ce8d80f29#c9d7ee61-5779-4436-b4e6-9053741c46bb). </br>
 This notebook was adapted by [Linaqruf](https://github.com/Linaqruf)</br>
 You can find the latest update to the notebook [here](https://github.com/Linaqruf/kohya-trainer/blob/main/kohya-trainer.ipynb).
+
+##### v11.5 (31/01):
+__What Changes?__
+- Refactored the 4 notebooks, removing unhelpful comments and making some code more efficient.
+- Removed the `download and generate` regularization images function from `kohya-dreambooth.ipynb` and `kohya-LoRA-dreambooth.ipynb`.
+- Simplified cells to create the `train_folder_directory` and `reg_folder_directory` folders in `kohya-dreambooth.ipynb` and `kohya-LoRA-dreambooth.ipynb`.
+- Improved the download link function from outside `huggingface` using `aria2c`.
+- Set `Anything V3.1` which has been improved CLIP and VAE models as the default pretrained model.
+- Fixed the `parameter table` and created the remaining tables for the dreambooth notebooks.
+- Added `network_alpha` as a supporting hyperparameter for `network_dim` in the LoRA notebook.
+- Added the `lr_scheduler_num_cycles` function for `cosine_with_restarts` and the `lr_scheduler_power` function for `polynomial`.
+- Removed the global syntax `--learning_rate` in each LoRA notebook because `unet_lr` and `text_encoder_lr` are already available.
+- Fixed the `upload to hf_hub` cell function.
+
+Training script Changes([kohya_ss](https://github.com/kohya-ss))
+- Please read [release version 0.4.0](https://github.com/kohya-ss/sd-scripts/releases/tag/v0.4.0) for recent updates.
+
+## Soon:
+- Kohya-Textual-Inversion.ipynb
+
 
 ## Overview
 - Fine tuning of Stable Diffusion's U-Net using Diffusers
@@ -39,7 +59,6 @@ Please refer to [bmaltais's repo](https://github.com/bmaltais) if you want to ru
 #### 2023
 
 ##### v11 (19/01):
-__What Changes?__
 - Reformat notebook, 
   - Added `%store` IPython magic command to store important variable
   - Now you can change the active directory only by editing directory path in `1.1. Clone Kohya Trainer` cell, and save it using `%store` magic command.
