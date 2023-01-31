@@ -30,7 +30,7 @@ def main(args):
   for image_path in tqdm(image_paths):
     tags_path = os.path.splitext(image_path)[0] + '.txt'
     if not os.path.exists(tags_path):
-        tags_path = image_path + '.txt'
+      tags_path = image_path + '.txt'
     with open(tags_path, "rt", encoding='utf-8') as f:
       tags = f.readlines()[0].strip()
 
