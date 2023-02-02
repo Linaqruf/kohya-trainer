@@ -1,12 +1,41 @@
-# Kohya Trainer V11.5
-![GitHub Repo stars](https://img.shields.io/github/stars/Linaqruf/kohya-trainer?style=social)</a><a target="_blank" href="https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/kohya-trainer.ipynb">
-<img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> <img src="https://visitor-badge.glitch.me/badge?page_id=linaqruf.kohya-repo-trainer" alt="visitor badge"/>
+# Kohya Trainer V11.6
+![GitHub Repo stars](https://img.shields.io/github/stars/Linaqruf/kohya-trainer?style=social)</a> <img src="https://visitor-badge.glitch.me/badge?page_id=linaqruf.kohya-repo-trainer" alt="visitor badge"/>
 
-### The Best Way for People Without Good GPUs to Fine-Tune the Stable Diffusion Model
 
-This notebook has been adapted for use in Google Colab based on the [Kohya Guide](https://note.com/kohya_ss/n/nbf7ce8d80f29#c9d7ee61-5779-4436-b4e6-9053741c46bb). </br>
-This notebook was adapted by [Linaqruf](https://github.com/Linaqruf)</br>
-You can find the latest update to the notebook [here](https://github.com/Linaqruf/kohya-trainer/blob/main/kohya-trainer.ipynb).
+| Notebook Name | Description | Link |
+| --- | --- | --- |
+| [Kohya LoRA Dreambooth](https://github.com/Linaqruf/kohya-trainer/blob/main/kohya-LoRA-dreambooth.ipynb) | LoRA Training (Dreambooth method) |<a target="_blank" href="https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/kohya-LoRA-dreambooth.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>  |
+| [Kohya LoRA Fine-Tuning](https://github.com/Linaqruf/kohya-trainer/blob/main/kohya-LoRA-finetuner.ipynb) | LoRA Training (Fine-tune method) |<a target="_blank" href="https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/kohya-LoRA-finetuner.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>  |
+| [Kohya Trainer](https://github.com/Linaqruf/kohya-trainer/blob/main/kohya-trainer.ipynb) | Native Training |<a target="_blank" href="https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/kohya-trainer.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>  |
+| [Kohya Dreambooth](https://github.com/Linaqruf/kohya-trainer/blob/main/kohya-dreambooth.ipynb) | Dreambooth Training |<a target="_blank" href="https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/kohya-dreambooth.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>  |
+| Kohya Textual Inversion  | Textual Inversion Training | SOON |
+
+## Useful Links
+- Official repository : [kohya-ss/sd-scripts](https://github.com/kohya-ss/sd-scripts)
+- Gradio Web UI Implementation : [bmaltais/kohya_ss](https://github.com/bmaltais/kohya_ss)
+- Automatic1111 Web UI extensions : [dPn08/kohya-sd-scripts-webui](https://github.com/ddPn08/kohya-sd-scripts-webui)
+
+## Overview
+- Fine tuning of Stable Diffusion's U-Net using Diffusers
+- Addressing improvements from the NovelAI article, such as using the output of the penultimate layer of CLIP (Text Encoder) instead of the last layer and learning at non-square resolutions with aspect ratio bucketing.
+- Extends token length from 75 to 225 and offers automatic caption and automatic tagging with BLIP, DeepDanbooru, and WD14Tagger
+- Supports hypernetwork learning and is compatible with Stable Diffusion v2.0 (base and 768/v)
+- By default, does not train Text Encoder for fine tuning of the entire model, but option to train Text Encoder is available.
+- Ability to make learning even more flexible than with DreamBooth by preparing a certain number of images (several hundred or more seems to be desirable).
+
+
+## Original post for each dedicated script:
+- [gen_img_diffusers](https://note.com/kohya_ss/n/n2693183a798e)
+- [merge_vae](https://note.com/kohya_ss/n/nf5893a2e719c)
+- [convert_diffusers20_original_sd](https://note.com/kohya_ss/n/n374f316fe4ad)
+- [detect_face_rotate](https://note.com/kohya_ss/n/nad3bce9a3622)
+- [diffusers_fine_tuning](https://note.com/kohya_ss/n/nbf7ce8d80f29)
+- [train_db_fixed](https://note.com/kohya_ss/n/nee3ed1649fb6)
+- [merge_block_weighted](https://note.com/kohya_ss/n/n9a485a066d5b)
+
+## Change Logs:
+
+#### 2023
 
 ##### v11.5 (31/01):
 __What Changes?__
@@ -23,40 +52,6 @@ __What Changes?__
 
 Training script Changes([kohya_ss](https://github.com/kohya-ss))
 - Please read [release version 0.4.0](https://github.com/kohya-ss/sd-scripts/releases/tag/v0.4.0) for recent updates.
-
-## Soon:
-- Kohya-Textual-Inversion.ipynb
-
-
-## Overview
-- Fine tuning of Stable Diffusion's U-Net using Diffusers
-- Addressing improvements from the NovelAI article, such as using the output of the penultimate layer of CLIP (Text Encoder) instead of the last layer and learning at non-square resolutions with aspect ratio bucketing.
-- Extends token length from 75 to 225 and offers automatic caption and automatic tagging with BLIP, DeepDanbooru, and WD14Tagger
-- Supports hypernetwork learning and is compatible with Stable Diffusion v2.0 (base and 768/v)
-- By default, does not train Text Encoder for fine tuning of the entire model, but option to train Text Encoder is available.
-- Ability to make learning even more flexible than with DreamBooth by preparing a certain number of images (several hundred or more seems to be desirable).
-
-## Kohya S. Official Github Account
-- [kohya_ss](https://github.com/kohya-ss)
-
-## Run locally 
-Please refer to [bmaltais's repo](https://github.com/bmaltais) if you want to run it locally on your terminal
-- bmaltais's [kohya_ss](https://github.com/bmaltais/kohya_ss) (dreambooth)
-- bmaltais's [kohya_diffusers_fine_tuning](https://github.com/bmaltais/kohya_diffusers_fine_tuning) 
-- bmaltais's [kohya_diffusion](https://github.com/bmaltais/kohya_diffusion) (gen_img_diffusers)
-
-## Original post for each dedicated script:
-- [gen_img_diffusers](https://note.com/kohya_ss/n/n2693183a798e)
-- [merge_vae](https://note.com/kohya_ss/n/nf5893a2e719c)
-- [convert_diffusers20_original_sd](https://note.com/kohya_ss/n/n374f316fe4ad)
-- [detect_face_rotate](https://note.com/kohya_ss/n/nad3bce9a3622)
-- [diffusers_fine_tuning](https://note.com/kohya_ss/n/nbf7ce8d80f29)
-- [train_db_fixed](https://note.com/kohya_ss/n/nee3ed1649fb6)
-- [merge_block_weighted](https://note.com/kohya_ss/n/n9a485a066d5b)
-
-## Change Logs:
-
-#### 2023
 
 ##### v11 (19/01):
 - Reformat notebook, 
