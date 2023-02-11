@@ -5,8 +5,8 @@
 
 import math
 import os
-import torch
 from typing import List
+import torch
 
 from library import train_util
 
