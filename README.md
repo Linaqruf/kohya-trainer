@@ -1,5 +1,5 @@
-# Kohya Trainer V12
-![GitHub Repo stars](https://img.shields.io/github/stars/Linaqruf/kohya-trainer?style=social)</a> <img src="https://visitor-badge.glitch.me/badge?page_id=linaqruf.kohya-repo-trainer" alt="visitor badge"/>
+# Kohya Trainer V13
+![GitHub Repo stars](https://img.shields.io/github/stars/Linaqruf/kohya-trainer?style=social)</a> <img src="https://visitor-badge.glitch.me/badge?page_id=linaqruf.kohya-repo-trainer" alt="visitor badge"/> [![](https://dcbadge.vercel.app/api/shield/931591564424253512?style=flat)](https://lookup.guru/931591564424253512) [![ko-fi](https://img.shields.io/badge/Support%20me%20on%20Ko--fi-F16061?logo=ko-fi&logoColor=white&style=flat)](https://ko-fi.com/linaqruf) <a href="https://saweria.co/linaqruf"><img alt="Saweria" src="https://img.shields.io/badge/Saweria-7B3F00?style=flat&logo=ko-fi&logoColor=white"/></a>
 
 ### Github Repository for [kohya-ss/sd-scripts](https://github.com/kohya-ss/sd-scripts) colab notebook implementation
 | Notebook Name | Description | Link |
@@ -9,32 +9,12 @@
 | [Kohya Trainer](https://github.com/Linaqruf/kohya-trainer/blob/main/kohya-trainer.ipynb) | Native Training | [![](https://img.shields.io/static/v1?message=Open%20in%20Colab&logo=googlecolab&labelColor=5c5c5c&color=0f80c1&label=%20&style=for-the-badge)](https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/kohya-trainer.ipynb) |
 | [Kohya Dreambooth](https://github.com/Linaqruf/kohya-trainer/blob/main/kohya-dreambooth.ipynb) | Dreambooth Training | [![](https://img.shields.io/static/v1?message=Open%20in%20Colab&logo=googlecolab&labelColor=5c5c5c&color=0f80c1&label=%20&style=for-the-badge)](https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/kohya-dreambooth.ipynb) |
 | Kohya Textual Inversion  | Textual Inversion Training | SOON |
-
-## Become a supporter
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/linaqruf)
-<a href="https://saweria.co/linaqruf"><img alt="Saweria" src="https://img.shields.io/badge/Saweria-7B3F00?style=for-the-badge&logo=ko-fi&logoColor=white"/></a>
+| [Fast Kohya Trainer](https://github.com/Linaqruf/kohya-trainer/blob/main/fast-kohya-trainer.ipynb) `NEW`| Easy 1-click LoRA & Native Training| [![](https://img.shields.io/static/v1?message=Open%20in%20Colab&logo=googlecolab&labelColor=5c5c5c&color=0f80c1&label=%20&style=for-the-badge)](https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/fast-kohya-trainer.ipynb) |
+| LoRA Colab Toolkit  | Merge, Extract, Interrogate, etc for LoRA | SOON |
 
 ## Updates
-##### v12 (02/05):
+##### v12 (13/02):
 __What Changes?__
-- Refactored the 4 notebooks (again)
-- Restored the `--learning_rate` function in `kohya-LoRA-dreambooth.ipynb` and `kohya-LoRA-finetuner.ipynb` [#52](https://github.com/Linaqruf/kohya-trainer/issues/52)
-- Fixed the cell for inputting custom tags [#48](https://github.com/Linaqruf/kohya-trainer/issues/48) and added the `--keep_tokens` function to prevent custom tags from being shuffled.
-- Added a cell to check if all LoRA modules have been trained properly.
-- Added descriptions for each notebook and links to the relevant notebooks to prevent "training on the wrong notebook" from happening again.
-- Added a cell to check the metadata in the LoRA model.
-- Added a cell to change the transparent background in the train data.
-- Added a cell to upscale the train data using R-ESRGAN
-- Divided the Data Annotation section into two cells:
-  - Removed BLIP and replaced it with `Microsoft/GIT` as the auto-captioning for natural language (git-large-textcaps is the default model).
-  - Updated the Waifu Diffusion 1.4 Tagger to version v2 (SwinV2 is the default model).
-    - The user can adjust the threshold for general tags. It is recommended to set the threshold higher (e.g. `0.85`) if you are training on objects or characters, and lower the threshold (e.g. `0.35`) for training on general, style, or environment.
-    - The user can choose from three available models.
-- Added a field for uploading to the Huggingface organization account.
-- Added the `--min_bucket_reso=320` and `--max_bucket_reso=1280` functions for training resolutions above 512 (e.g. 640 and 768), Thanks Trauter!
-
-Training script Changes([kohya_ss](https://github.com/kohya-ss))
-- Please read [Updates 3 Feb. 2023, 2023/2/3](https://github.com/kohya-ss/sd-scripts/blob/fb230aff1b434a21fc679e4902ac1ff5aab1d76b/README.md) for recent updates.
 
 ## Useful Links
 - Official repository : [kohya-ss/sd-scripts](https://github.com/kohya-ss/sd-scripts)
@@ -61,6 +41,27 @@ Training script Changes([kohya_ss](https://github.com/kohya-ss))
 ## Change Logs:
 
 #### 2023
+
+##### v12 (05/02):
+__What Changes?__
+- Refactored the 4 notebooks (again)
+- Restored the `--learning_rate` function in `kohya-LoRA-dreambooth.ipynb` and `kohya-LoRA-finetuner.ipynb` [#52](https://github.com/Linaqruf/kohya-trainer/issues/52)
+- Fixed the cell for inputting custom tags [#48](https://github.com/Linaqruf/kohya-trainer/issues/48) and added the `--keep_tokens` function to prevent custom tags from being shuffled.
+- Added a cell to check if all LoRA modules have been trained properly.
+- Added descriptions for each notebook and links to the relevant notebooks to prevent "training on the wrong notebook" from happening again.
+- Added a cell to check the metadata in the LoRA model.
+- Added a cell to change the transparent background in the train data.
+- Added a cell to upscale the train data using R-ESRGAN
+- Divided the Data Annotation section into two cells:
+  - Removed BLIP and replaced it with `Microsoft/GIT` as the auto-captioning for natural language (git-large-textcaps is the default model).
+  - Updated the Waifu Diffusion 1.4 Tagger to version v2 (SwinV2 is the default model).
+    - The user can adjust the threshold for general tags. It is recommended to set the threshold higher (e.g. `0.85`) if you are training on objects or characters, and lower the threshold (e.g. `0.35`) for training on general, style, or environment.
+    - The user can choose from three available models.
+- Added a field for uploading to the Huggingface organization account.
+- Added the `--min_bucket_reso=320` and `--max_bucket_reso=1280` functions for training resolutions above 512 (e.g. 640 and 768), Thanks Trauter!
+
+Training script Changes([kohya_ss](https://github.com/kohya-ss))
+- Please read [Updates 3 Feb. 2023, 2023/2/3](https://github.com/kohya-ss/sd-scripts/blob/fb230aff1b434a21fc679e4902ac1ff5aab1d76b/README.md) for recent updates.
 
 ##### v11.5 (31/01):
 __What Changes?__
