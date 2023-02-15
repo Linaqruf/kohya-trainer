@@ -247,7 +247,7 @@ def train(args):
               args, input_ids, tokenizer, text_encoder, None if not args.full_fp16 else weight_dtype)
 
         # Sample noise that we'll add to the latents
-        noise = torch.randn_like(latents, device=latents.device)
+        noise = torch.randn_like(latents) + args.offset_noise_weight * torch.randn(latents.shape[0], latents.shape[1], 1, 1)
 
         # Sample a random timestep for each image
         timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (b_size,), device=latents.device)
@@ -338,6 +338,8 @@ if __name__ == '__main__':
   parser.add_argument("--diffusers_xformers", action='store_true',
                       help='use xformers by diffusers / Diffusersでxformersを使用する')
   parser.add_argument("--train_text_encoder", action="store_true", help="train text encoder / text encoderも学習する")
+
+  parser.add_argument("--offset_noise_weight", default=0.1, type=float, help="offset noise weight for contrast improvements")
 
   args = parser.parse_args()
   train(args)

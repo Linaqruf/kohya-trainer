@@ -228,7 +228,7 @@ def train(args):
           latents = latents * 0.18215
 
         # Sample noise that we'll add to the latents
-        noise = torch.randn_like(latents, device=latents.device)
+        noise = torch.randn_like(latents) + args.offset_noise_weight * torch.randn(latents.shape[0], latents.shape[1], 1, 1)
         b_size = latents.shape[0]
 
         # Get the text embedding for conditioning
@@ -334,6 +334,7 @@ if __name__ == '__main__':
                       help="disable token padding (same as Diffuser's DreamBooth) / トークンのpaddingを無効にする（Diffusers版DreamBoothと同じ動作）")
   parser.add_argument("--stop_text_encoder_training", type=int, default=None,
                       help="steps to stop text encoder training, -1 for no training / Text Encoderの学習を止めるステップ数、-1で最初から学習しない")
+  parser.add_argument("--offset_noise_weight", default=0.1, type=float, help="offset noise weight for contrast improvements")
 
   args = parser.parse_args()
   train(args)
