@@ -395,7 +395,7 @@ def train(args):
           encoder_hidden_states = train_util.get_hidden_states(args, input_ids, tokenizer, text_encoder, weight_dtype)
 
         # Sample noise that we'll add to the latents
-        noise = torch.randn_like(latents, device=latents.device)
+        noise = torch.randn_like(latents, device=latents.device) + 0.1 * torch.randn(latents.shape[0], latents.shape[1], 1, 1, device=latents.device)
         
         # Sample a random timestep for each image
         timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (b_size,), device=latents.device)
@@ -534,5 +534,6 @@ if __name__ == '__main__':
                       help="only training Text Encoder part / Text Encoder関連部分のみ学習する")
   parser.add_argument("--training_comment", type=str, default=None,
                       help="arbitrary comment string stored in metadata / メタデータに記録する任意のコメント文字列")
+  parser.add_argument("--offset_noise_weight", default=0.1, type=float, help="offset noise weight for contrast improvements")
   args = parser.parse_args()
   train(args)
