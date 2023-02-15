@@ -228,7 +228,7 @@ def train(args):
           latents = latents * 0.18215
 
         # Sample noise that we'll add to the latents
-        noise = torch.randn_like(latents) + args.offset_noise_weight * torch.randn(latents.shape[0], latents.shape[1], 1, 1)
+        noise = torch.randn_like(latents, device=latents.device) + args.offset_noise_weight * torch.randn(latents.shape[0], latents.shape[1], 1, 1, device=latents.device)
         b_size = latents.shape[0]
 
         # Get the text embedding for conditioning
