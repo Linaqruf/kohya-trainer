@@ -28,7 +28,7 @@ def main(args):
   for image_path in tqdm(image_paths):
     tags_path = image_path.with_suffix(args.caption_extension)
     tags = tags_path.read_text(encoding='utf-8').strip()
-    
+
     if not os.path.exists(tags_path):
       tags_path = os.path.join(image_path, args.caption_extension)
       
