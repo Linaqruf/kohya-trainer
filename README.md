@@ -19,7 +19,7 @@ __What Changes?__
   - Merged `Install Kohya Trainer`, `Install Dependencies`, and `Mount Drive` cells
   - Merged `Dataset Cleaning` and `Convert RGB to RGBA` cells
   - Deleted `Image Upscaler` cell, because bucketing automatically upscale your dataset (converted to image latents) to `min_bucket_reso` value.
-  - Deleted `Colab Ram Patch` because now you can set `--lowvram` in the training script.
+  - Deleted `Colab Ram Patch` because now you can set `--lowram` in the training script.
   - Revamped `Unzip dataset` cell to make it look simpler
 - Added xformers pre-compiled wheel for `A100` 
 - Revamped `Pretrained Model` section
