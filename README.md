@@ -50,11 +50,11 @@ __What Changes?__
       - Added new Optimizer from latest kohya-ss/sd-script, all available optimizer : `"AdamW", "AdamW8bit", "Lion", "SGDNesterov", "SGDNesterov8bit", "DAdaptation", "AdaFactor"
       - Currently you can't use `DAdaptation` if you're in Colab free tier because it need more VRAM
       - Added `--optimizer_args` for custom args, useful if you want to try adjusting weight decay, betas etc
-     - Dataset Config
+    - Dataset Config
       - Only available for Dreambooth method notebook, it basically bucketing cell for Dreambooth.
       - Added `caption dropout`, you can drop your caption or tags by adjusting dropout rates.
       - Added `--bucket_reso_steps` and `--bucket_no_upscale`
-     - Training Config
+    - Training Config
       - Added `--noise_offset`, read [Diffusion With Offset Noise](https://www.crosslabs.org//blog/diffusion-with-offset-noise)
       - Added `--lowram` to load the model in VRAM instead of CPU
 - Revamped `Convert Diffusers to Checkpoint` cell, now it's more readable.
