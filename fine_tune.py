@@ -33,8 +33,13 @@ def train(args):
   train_dataset = train_util.FineTuningDataset(args.in_json, args.train_batch_size, args.train_data_dir,
                                                tokenizer, args.max_token_length, args.shuffle_caption, args.keep_tokens,
                                                args.resolution, args.enable_bucket, args.min_bucket_reso, args.max_bucket_reso,
+                                               args.bucket_reso_steps, args.bucket_no_upscale,
                                                args.flip_aug, args.color_aug, args.face_crop_aug_range, args.random_crop,
                                                args.dataset_repeats, args.debug_dataset)
+
+  # 学習データのdropout率を設定する
+  train_dataset.set_caption_dropout(args.caption_dropout_rate, args.caption_dropout_every_n_epochs, args.caption_tag_dropout_rate)
+
   train_dataset.make_buckets()
 
   if args.debug_dataset:
@@ -144,26 +149,13 @@ def train(args):
 
   # 学習に必要なクラスを準備する
   print("prepare optimizer, data loader etc.")
-
-  # 8-bit Adamを使う
-  if args.use_8bit_adam:
-    try:
-      import bitsandbytes as bnb
-    except ImportError:
-      raise ImportError("No bitsand bytes / bitsandbytesがインストールされていないようです")
-    print("use 8-bit Adam optimizer")
-    optimizer_class = bnb.optim.AdamW8bit
-  else:
-    optimizer_class = torch.optim.AdamW
-
-  # betaやweight decayはdiffusers DreamBoothもDreamBooth SDもデフォルト値のようなのでオプションはとりあえず省略
-  optimizer = optimizer_class(params_to_optimize, lr=args.learning_rate)
+  _, _, optimizer = train_util.get_optimizer(args, trainable_params=params_to_optimize)
 
   # dataloaderを準備する
   # DataLoaderのプロセス数：0はメインプロセスになる
   n_workers = min(args.max_data_loader_n_workers, os.cpu_count() - 1)      # cpu_count-1 ただし最大で指定された数まで
   train_dataloader = torch.utils.data.DataLoader(
-      train_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=n_workers)
+      train_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=n_workers, persistent_workers=args.persistent_data_loader_workers)
 
   # 学習ステップ数を計算する
   if args.max_train_epochs is not None:
@@ -171,8 +163,9 @@ def train(args):
     print(f"override steps. steps for {args.max_train_epochs} epochs is / 指定エポックまでのステップ数: {args.max_train_steps}")
 
   # lr schedulerを用意する
-  lr_scheduler = diffusers.optimization.get_scheduler(
-      args.lr_scheduler, optimizer, num_warmup_steps=args.lr_warmup_steps, num_training_steps=args.max_train_steps * args.gradient_accumulation_steps)
+  lr_scheduler = train_util.get_scheduler_fix(args.lr_scheduler, optimizer, num_warmup_steps=args.lr_warmup_steps,
+                                              num_training_steps=args.max_train_steps * args.gradient_accumulation_steps,
+                                              num_cycles=args.lr_scheduler_num_cycles, power=args.lr_scheduler_power)
 
   # 実験的機能：勾配も含めたfp16学習を行う　モデル全体をfp16にする
   if args.full_fp16:
@@ -225,6 +218,8 @@ def train(args):
 
   for epoch in range(num_train_epochs):
     print(f"epoch {epoch+1}/{num_train_epochs}")
+    train_dataset.set_current_epoch(epoch + 1)
+
     for m in training_models:
       m.train()
 
@@ -248,6 +243,9 @@ def train(args):
 
         # Sample noise that we'll add to the latents
         noise = torch.randn_like(latents, device=latents.device)
+        if args.noise_offset:
+          # https://www.crosslabs.org//blog/diffusion-with-offset-noise
+          noise += args.noise_offset * torch.randn((latents.shape[0], latents.shape[1], 1, 1), device=latents.device)
 
         # Sample a random timestep for each image
         timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (b_size,), device=latents.device)
@@ -269,11 +267,11 @@ def train(args):
         loss = torch.nn.functional.mse_loss(noise_pred.float(), target.float(), reduction="mean")
 
         accelerator.backward(loss)
-        if accelerator.sync_gradients:
+        if accelerator.sync_gradients and args.max_grad_norm != 0.0:
           params_to_clip = []
           for m in training_models:
             params_to_clip.extend(m.parameters())
-          accelerator.clip_grad_norm_(params_to_clip, 1.0)  # args.max_grad_norm)
+          accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
 
         optimizer.step()
         lr_scheduler.step()
@@ -286,9 +284,12 @@ def train(args):
 
       current_loss = loss.detach().item()        # 平均なのでbatch sizeは関係ないはず
       if args.logging_dir is not None:
-        logs = {"loss": current_loss, "lr": lr_scheduler.get_last_lr()[0]}
+        logs = {"loss": current_loss, "lr": float(lr_scheduler.get_last_lr()[0])}
+        if args.optimizer_type.lower() == "DAdaptation".lower():  # tracking d*lr value
+          logs["lr/d*lr"] = lr_scheduler.optimizers[0].param_groups[0]['d']*lr_scheduler.optimizers[0].param_groups[0]['lr']
         accelerator.log(logs, step=global_step)
 
+      # TODO moving averageにする
       loss_total += current_loss
       avr_loss = loss_total / (step+1)
       logs = {"loss": avr_loss}  # , "lr": lr_scheduler.get_last_lr()[0]}
@@ -298,7 +299,7 @@ def train(args):
         break
 
     if args.logging_dir is not None:
-      logs = {"epoch_loss": loss_total / len(train_dataloader)}
+      logs = {"loss/epoch": loss_total / len(train_dataloader)}
       accelerator.log(logs, step=epoch+1)
 
     accelerator.wait_for_everyone()
@@ -331,9 +332,10 @@ if __name__ == '__main__':
   parser = argparse.ArgumentParser()
 
   train_util.add_sd_models_arguments(parser)
-  train_util.add_dataset_arguments(parser, False, True)
+  train_util.add_dataset_arguments(parser, False, True, True)
   train_util.add_training_arguments(parser, False)
   train_util.add_sd_saving_arguments(parser)
+  train_util.add_optimizer_arguments(parser)
 
   parser.add_argument("--diffusers_xformers", action='store_true',
                       help='use xformers by diffusers / Diffusersでxformersを使用する')

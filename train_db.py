@@ -35,10 +35,16 @@ def train(args):
 
   train_dataset = DreamBoothDataset(args.train_batch_size, args.train_data_dir, args.reg_data_dir,
                                     tokenizer, args.max_token_length, args.caption_extension, args.shuffle_caption, args.keep_tokens,
-                                    args.resolution, args.enable_bucket, args.min_bucket_reso, args.max_bucket_reso, args.prior_loss_weight,
-                                    args.flip_aug, args.color_aug, args.face_crop_aug_range, args.random_crop, args.debug_dataset)
+                                    args.resolution, args.enable_bucket, args.min_bucket_reso, args.max_bucket_reso,
+                                    args.bucket_reso_steps, args.bucket_no_upscale,
+                                    args.prior_loss_weight, args.flip_aug, args.color_aug, args.face_crop_aug_range, args.random_crop, args.debug_dataset)
+
   if args.no_token_padding:
     train_dataset.disable_token_padding()
+
+  # 学習データのdropout率を設定する
+  train_dataset.set_caption_dropout(args.caption_dropout_rate, args.caption_dropout_every_n_epochs, args.caption_tag_dropout_rate)
+
   train_dataset.make_buckets()
 
   if args.debug_dataset:
@@ -109,31 +115,18 @@ def train(args):
 
   # 学習に必要なクラスを準備する
   print("prepare optimizer, data loader etc.")
-
-  # 8-bit Adamを使う
-  if args.use_8bit_adam:
-    try:
-      import bitsandbytes as bnb
-    except ImportError:
-      raise ImportError("No bitsand bytes / bitsandbytesがインストールされていないようです")
-    print("use 8-bit Adam optimizer")
-    optimizer_class = bnb.optim.AdamW8bit
-  else:
-    optimizer_class = torch.optim.AdamW
-
   if train_text_encoder:
     trainable_params = (itertools.chain(unet.parameters(), text_encoder.parameters()))
   else:
     trainable_params = unet.parameters()
 
-  # betaやweight decayはdiffusers DreamBoothもDreamBooth SDもデフォルト値のようなのでオプションはとりあえず省略
-  optimizer = optimizer_class(trainable_params, lr=args.learning_rate)
+  _, _, optimizer = train_util.get_optimizer(args, trainable_params)
 
   # dataloaderを準備する
   # DataLoaderのプロセス数：0はメインプロセスになる
   n_workers = min(args.max_data_loader_n_workers, os.cpu_count() - 1)      # cpu_count-1 ただし最大で指定された数まで
   train_dataloader = torch.utils.data.DataLoader(
-      train_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=n_workers)
+      train_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=n_workers, persistent_workers=args.persistent_data_loader_workers)
 
   # 学習ステップ数を計算する
   if args.max_train_epochs is not None:
@@ -143,9 +136,10 @@ def train(args):
   if args.stop_text_encoder_training is None:
     args.stop_text_encoder_training = args.max_train_steps + 1                # do not stop until end
 
-  # lr schedulerを用意する
-  lr_scheduler = diffusers.optimization.get_scheduler(
-      args.lr_scheduler, optimizer, num_warmup_steps=args.lr_warmup_steps, num_training_steps=args.max_train_steps)
+  # lr schedulerを用意する TODO gradient_accumulation_stepsの扱いが何かおかしいかもしれない。後で確認する
+  lr_scheduler = train_util.get_scheduler_fix(args.lr_scheduler, optimizer, num_warmup_steps=args.lr_warmup_steps,
+                                              num_training_steps=args.max_train_steps,
+                                              num_cycles=args.lr_scheduler_num_cycles, power=args.lr_scheduler_power)
 
   # 実験的機能：勾配も含めたfp16学習を行う　モデル全体をfp16にする
   if args.full_fp16:
@@ -200,8 +194,11 @@ def train(args):
   if accelerator.is_main_process:
     accelerator.init_trackers("dreambooth")
 
+  loss_list = []
+  loss_total = 0.0
   for epoch in range(num_train_epochs):
     print(f"epoch {epoch+1}/{num_train_epochs}")
+    train_dataset.set_current_epoch(epoch + 1)
 
     # 指定したステップ数までText Encoderを学習する：epoch最初の状態
     unet.train()
@@ -209,7 +206,6 @@ def train(args):
     if args.gradient_checkpointing or global_step < args.stop_text_encoder_training:
       text_encoder.train()
 
-    loss_total = 0
     for step, batch in enumerate(train_dataloader):
       # 指定したステップ数でText Encoderの学習を止める
       if global_step == args.stop_text_encoder_training:
@@ -226,10 +222,13 @@ def train(args):
           else:
             latents = vae.encode(batch["images"].to(dtype=weight_dtype)).latent_dist.sample()
           latents = latents * 0.18215
+        b_size = latents.shape[0]
 
         # Sample noise that we'll add to the latents
         noise = torch.randn_like(latents, device=latents.device)
-        b_size = latents.shape[0]
+        if args.noise_offset:
+          # https://www.crosslabs.org//blog/diffusion-with-offset-noise
+          noise += args.noise_offset * torch.randn((latents.shape[0], latents.shape[1], 1, 1), device=latents.device)
 
         # Get the text embedding for conditioning
         with torch.set_grad_enabled(global_step < args.stop_text_encoder_training):
@@ -263,12 +262,12 @@ def train(args):
         loss = loss.mean()                # 平均なのでbatch_sizeで割る必要なし
 
         accelerator.backward(loss)
-        if accelerator.sync_gradients:
+        if accelerator.sync_gradients and args.max_grad_norm != 0.0:
           if train_text_encoder:
             params_to_clip = (itertools.chain(unet.parameters(), text_encoder.parameters()))
           else:
             params_to_clip = unet.parameters()
-          accelerator.clip_grad_norm_(params_to_clip, 1.0)  # args.max_grad_norm)
+          accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
 
         optimizer.step()
         lr_scheduler.step()
@@ -281,11 +280,18 @@ def train(args):
 
       current_loss = loss.detach().item()
       if args.logging_dir is not None:
-        logs = {"loss": current_loss, "lr": lr_scheduler.get_last_lr()[0]}
+        logs = {"loss": current_loss, "lr": float(lr_scheduler.get_last_lr()[0])}
+        if args.optimizer_type.lower() == "DAdaptation".lower():  # tracking d*lr value
+          logs["lr/d*lr"] = lr_scheduler.optimizers[0].param_groups[0]['d']*lr_scheduler.optimizers[0].param_groups[0]['lr']
         accelerator.log(logs, step=global_step)
 
+      if epoch == 0:
+        loss_list.append(current_loss)
+      else:
+        loss_total -= loss_list[step]
+        loss_list[step] = current_loss
       loss_total += current_loss
-      avr_loss = loss_total / (step+1)
+      avr_loss = loss_total / len(loss_list)
       logs = {"loss": avr_loss}  # , "lr": lr_scheduler.get_last_lr()[0]}
       progress_bar.set_postfix(**logs)
 
@@ -293,7 +299,7 @@ def train(args):
         break
 
     if args.logging_dir is not None:
-      logs = {"epoch_loss": loss_total / len(train_dataloader)}
+      logs = {"loss/epoch": loss_total / len(loss_list)}
       accelerator.log(logs, step=epoch+1)
 
     accelerator.wait_for_everyone()
@@ -326,9 +332,10 @@ if __name__ == '__main__':
   parser = argparse.ArgumentParser()
 
   train_util.add_sd_models_arguments(parser)
-  train_util.add_dataset_arguments(parser, True, False)
+  train_util.add_dataset_arguments(parser, True, False, True)
   train_util.add_training_arguments(parser, True)
   train_util.add_sd_saving_arguments(parser)
+  train_util.add_optimizer_arguments(parser)
 
   parser.add_argument("--no_token_padding", action="store_true",
                       help="disable token padding (same as Diffuser's DreamBooth) / トークンのpaddingを無効にする（Diffusers版DreamBoothと同じ動作）")

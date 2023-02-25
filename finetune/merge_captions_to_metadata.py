@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import List
 from tqdm import tqdm
@@ -28,6 +29,9 @@ def main(args):
   for image_path in tqdm(image_paths):
     caption_path = image_path.with_suffix(args.caption_extension)
     caption = caption_path.read_text(encoding='utf-8').strip()
+
+    if not os.path.exists(caption_path):
+      caption_path = os.path.join(image_path, args.caption_extension)
 
     image_key = str(image_path) if args.full_path else image_path.stem
     if image_key not in metadata:

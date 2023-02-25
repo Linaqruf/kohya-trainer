@@ -1,6 +1,5 @@
-from diffusers.optimization import SchedulerType, TYPE_TO_SCHEDULER_FUNCTION
-from torch.optim import Optimizer
-from typing import Optional, Union
+from torch.cuda.amp import autocast
+from torch.nn.parallel import DistributedDataParallel as DDP
 import importlib
 import argparse
 import gc
@@ -24,81 +23,22 @@ def collate_fn(examples):
   return examples[0]
 
 
+# TODO 他のスクリプトと共通化する
 def generate_step_logs(args: argparse.Namespace, current_loss, avr_loss, lr_scheduler):
   logs = {"loss/current": current_loss, "loss/average": avr_loss}
 
   if args.network_train_unet_only:
-    logs["lr/unet"] = lr_scheduler.get_last_lr()[0]
+    logs["lr/unet"] = float(lr_scheduler.get_last_lr()[0])
   elif args.network_train_text_encoder_only:
-    logs["lr/textencoder"] = lr_scheduler.get_last_lr()[0]
+    logs["lr/textencoder"] = float(lr_scheduler.get_last_lr()[0])
   else:
-    logs["lr/textencoder"] = lr_scheduler.get_last_lr()[0]
-    logs["lr/unet"] = lr_scheduler.get_last_lr()[-1]          # may be same to textencoder
+    logs["lr/textencoder"] = float(lr_scheduler.get_last_lr()[0])
+    logs["lr/unet"] = float(lr_scheduler.get_last_lr()[-1])          # may be same to textencoder
+
+  if args.optimizer_type.lower() == "DAdaptation".lower():  # tracking d*lr value of unet.
+    logs["lr/d*lr"] = lr_scheduler.optimizers[-1].param_groups[0]['d']*lr_scheduler.optimizers[-1].param_groups[0]['lr']
 
   return logs
-
-
-# Monkeypatch newer get_scheduler() function overridng current version of diffusers.optimizer.get_scheduler
-# code is taken from https://github.com/huggingface/diffusers diffusers.optimizer, commit d87cc15977b87160c30abaace3894e802ad9e1e6
-# Which is a newer release of diffusers than currently packaged with sd-scripts
-# This code can be removed when newer diffusers version (v0.12.1 or greater) is tested and implemented to sd-scripts
-
-
-def get_scheduler_fix(
-    name: Union[str, SchedulerType],
-    optimizer: Optimizer,
-    num_warmup_steps: Optional[int] = None,
-    num_training_steps: Optional[int] = None,
-    num_cycles: int = 1,
-    power: float = 1.0,
-):
-  """
-  Unified API to get any scheduler from its name.
-  Args:
-      name (`str` or `SchedulerType`):
-          The name of the scheduler to use.
-      optimizer (`torch.optim.Optimizer`):
-          The optimizer that will be used during training.
-      num_warmup_steps (`int`, *optional*):
-          The number of warmup steps to do. This is not required by all schedulers (hence the argument being
-          optional), the function will raise an error if it's unset and the scheduler type requires it.
-      num_training_steps (`int``, *optional*):
-          The number of training steps to do. This is not required by all schedulers (hence the argument being
-          optional), the function will raise an error if it's unset and the scheduler type requires it.
-      num_cycles (`int`, *optional*):
-          The number of hard restarts used in `COSINE_WITH_RESTARTS` scheduler.
-      power (`float`, *optional*, defaults to 1.0):
-          Power factor. See `POLYNOMIAL` scheduler
-      last_epoch (`int`, *optional*, defaults to -1):
-          The index of the last epoch when resuming training.
-  """
-  name = SchedulerType(name)
-  schedule_func = TYPE_TO_SCHEDULER_FUNCTION[name]
-  if name == SchedulerType.CONSTANT:
-    return schedule_func(optimizer)
-
-  # All other schedulers require `num_warmup_steps`
-  if num_warmup_steps is None:
-    raise ValueError(f"{name} requires `num_warmup_steps`, please provide that argument.")
-
-  if name == SchedulerType.CONSTANT_WITH_WARMUP:
-    return schedule_func(optimizer, num_warmup_steps=num_warmup_steps)
-
-  # All other schedulers require `num_training_steps`
-  if num_training_steps is None:
-    raise ValueError(f"{name} requires `num_training_steps`, please provide that argument.")
-
-  if name == SchedulerType.COSINE_WITH_RESTARTS:
-    return schedule_func(
-        optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=num_training_steps, num_cycles=num_cycles
-    )
-
-  if name == SchedulerType.POLYNOMIAL:
-    return schedule_func(
-        optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=num_training_steps, power=power
-    )
-
-  return schedule_func(optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=num_training_steps)
 
 
 def train(args):
@@ -120,15 +60,22 @@ def train(args):
     print("Use DreamBooth method.")
     train_dataset = DreamBoothDataset(args.train_batch_size, args.train_data_dir, args.reg_data_dir,
                                       tokenizer, args.max_token_length, args.caption_extension, args.shuffle_caption, args.keep_tokens,
-                                      args.resolution, args.enable_bucket, args.min_bucket_reso, args.max_bucket_reso, args.prior_loss_weight,
-                                      args.flip_aug, args.color_aug, args.face_crop_aug_range, args.random_crop, args.debug_dataset)
+                                      args.resolution, args.enable_bucket, args.min_bucket_reso, args.max_bucket_reso,
+                                      args.bucket_reso_steps, args.bucket_no_upscale,
+                                      args.prior_loss_weight, args.flip_aug, args.color_aug, args.face_crop_aug_range,
+                                      args.random_crop, args.debug_dataset)
   else:
     print("Train with captions.")
     train_dataset = FineTuningDataset(args.in_json, args.train_batch_size, args.train_data_dir,
                                       tokenizer, args.max_token_length, args.shuffle_caption, args.keep_tokens,
                                       args.resolution, args.enable_bucket, args.min_bucket_reso, args.max_bucket_reso,
+                                      args.bucket_reso_steps, args.bucket_no_upscale,
                                       args.flip_aug, args.color_aug, args.face_crop_aug_range, args.random_crop,
                                       args.dataset_repeats, args.debug_dataset)
+
+  # 学習データのdropout率を設定する
+  train_dataset.set_caption_dropout(args.caption_dropout_rate, args.caption_dropout_every_n_epochs, args.caption_tag_dropout_rate)
+
   train_dataset.make_buckets()
 
   if args.debug_dataset:
@@ -147,6 +94,11 @@ def train(args):
 
   # モデルを読み込む
   text_encoder, vae, unet, _ = train_util.load_target_model(args, weight_dtype)
+
+  # work on low-ram device
+  if args.lowram:
+    text_encoder.to("cuda")
+    unet.to("cuda")
 
   # モデルに xformers とか memory efficient attention を組み込む
   train_util.replace_unet_modules(unet, args.mem_eff_attn, args.xformers)
@@ -194,27 +146,14 @@ def train(args):
   # 学習に必要なクラスを準備する
   print("prepare optimizer, data loader etc.")
 
-  # 8-bit Adamを使う
-  if args.use_8bit_adam:
-    try:
-      import bitsandbytes as bnb
-    except ImportError:
-      raise ImportError("No bitsand bytes / bitsandbytesがインストールされていないようです")
-    print("use 8-bit Adam optimizer")
-    optimizer_class = bnb.optim.AdamW8bit
-  else:
-    optimizer_class = torch.optim.AdamW
-
   trainable_params = network.prepare_optimizer_params(args.text_encoder_lr, args.unet_lr)
-
-  # betaやweight decayはdiffusers DreamBoothもDreamBooth SDもデフォルト値のようなのでオプションはとりあえず省略
-  optimizer = optimizer_class(trainable_params, lr=args.learning_rate)
+  optimizer_name, optimizer_args, optimizer = train_util.get_optimizer(args, trainable_params)
 
   # dataloaderを準備する
   # DataLoaderのプロセス数：0はメインプロセスになる
   n_workers = min(args.max_data_loader_n_workers, os.cpu_count() - 1)      # cpu_count-1 ただし最大で指定された数まで
   train_dataloader = torch.utils.data.DataLoader(
-      train_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=n_workers)
+      train_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=n_workers, persistent_workers=args.persistent_data_loader_workers)
 
   # 学習ステップ数を計算する
   if args.max_train_epochs is not None:
@@ -222,11 +161,9 @@ def train(args):
     print(f"override steps. steps for {args.max_train_epochs} epochs is / 指定エポックまでのステップ数: {args.max_train_steps}")
 
   # lr schedulerを用意する
-  # lr_scheduler = diffusers.optimization.get_scheduler(
-  lr_scheduler = get_scheduler_fix(
-      args.lr_scheduler, optimizer, num_warmup_steps=args.lr_warmup_steps,
-      num_training_steps=args.max_train_steps * args.gradient_accumulation_steps,
-      num_cycles=args.lr_scheduler_num_cycles, power=args.lr_scheduler_power)
+  lr_scheduler = train_util.get_scheduler_fix(args.lr_scheduler, optimizer, num_warmup_steps=args.lr_warmup_steps,
+                                              num_training_steps=args.max_train_steps * args.gradient_accumulation_steps,
+                                              num_cycles=args.lr_scheduler_num_cycles, power=args.lr_scheduler_power)
 
   # 実験的機能：勾配も含めたfp16学習を行う　モデル全体をfp16にする
   if args.full_fp16:
@@ -251,16 +188,25 @@ def train(args):
   unet.requires_grad_(False)
   unet.to(accelerator.device, dtype=weight_dtype)
   text_encoder.requires_grad_(False)
-  text_encoder.to(accelerator.device, dtype=weight_dtype)
+  text_encoder.to(accelerator.device)
   if args.gradient_checkpointing:                       # according to TI example in Diffusers, train is required
     unet.train()
     text_encoder.train()
 
     # set top parameter requires_grad = True for gradient checkpointing works
-    text_encoder.text_model.embeddings.requires_grad_(True)
+    if type(text_encoder) == DDP:
+      text_encoder.module.text_model.embeddings.requires_grad_(True)
+    else:
+      text_encoder.text_model.embeddings.requires_grad_(True)
   else:
     unet.eval()
     text_encoder.eval()
+
+  # support DistributedDataParallel
+  if type(text_encoder) == DDP:
+    text_encoder = text_encoder.module
+    unet = unet.module
+    network = network.module
 
   network.prepare_grad_etc(text_encoder, unet)
 
@@ -329,15 +275,26 @@ def train(args):
       "ss_shuffle_caption": bool(args.shuffle_caption),
       "ss_cache_latents": bool(args.cache_latents),
       "ss_enable_bucket": bool(train_dataset.enable_bucket),
+      "ss_bucket_no_upscale": bool(train_dataset.bucket_no_upscale),
       "ss_min_bucket_reso": train_dataset.min_bucket_reso,
       "ss_max_bucket_reso": train_dataset.max_bucket_reso,
       "ss_seed": args.seed,
+      "ss_lowram": args.lowram,
       "ss_keep_tokens": args.keep_tokens,
+      "ss_noise_offset": args.noise_offset,
       "ss_dataset_dirs": json.dumps(train_dataset.dataset_dirs_info),
       "ss_reg_dataset_dirs": json.dumps(train_dataset.reg_dataset_dirs_info),
       "ss_tag_frequency": json.dumps(train_dataset.tag_frequency),
       "ss_bucket_info": json.dumps(train_dataset.bucket_info),
-      "ss_training_comment": args.training_comment        # will not be updated after training
+      "ss_training_comment": args.training_comment,       # will not be updated after training
+      "ss_sd_scripts_commit_hash": train_util.get_git_revision_hash(),
+      "ss_optimizer": optimizer_name + (f"({optimizer_args})" if len(optimizer_args) > 0 else ""),
+      "ss_max_grad_norm": args.max_grad_norm,
+      "ss_caption_dropout_rate": args.caption_dropout_rate,
+      "ss_caption_dropout_every_n_epochs": args.caption_dropout_every_n_epochs,
+      "ss_caption_tag_dropout_rate": args.caption_tag_dropout_rate,
+      "ss_face_crop_aug_range": args.face_crop_aug_range,
+      "ss_prior_loss_weight": args.prior_loss_weight,
   }
 
   # uncomment if another network is added
@@ -371,13 +328,16 @@ def train(args):
   if accelerator.is_main_process:
     accelerator.init_trackers("network_train")
 
+  loss_list = []
+  loss_total = 0.0
   for epoch in range(num_train_epochs):
     print(f"epoch {epoch+1}/{num_train_epochs}")
+    train_dataset.set_current_epoch(epoch + 1)
+
     metadata["ss_epoch"] = str(epoch+1)
 
     network.on_epoch_start(text_encoder, unet)
 
-    loss_total = 0
     for step, batch in enumerate(train_dataloader):
       with accelerator.accumulate(network):
         with torch.no_grad():
@@ -396,6 +356,9 @@ def train(args):
 
         # Sample noise that we'll add to the latents
         noise = torch.randn_like(latents, device=latents.device)
+        if args.noise_offset:
+          # https://www.crosslabs.org//blog/diffusion-with-offset-noise
+          noise += args.noise_offset * torch.randn((latents.shape[0], latents.shape[1], 1, 1), device=latents.device)
 
         # Sample a random timestep for each image
         timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (b_size,), device=latents.device)
@@ -406,7 +369,8 @@ def train(args):
         noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
         # Predict the noise residual
-        noise_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
+        with accelerator.autocast():
+          noise_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
 
         if args.v_parameterization:
           # v-parameterization training
@@ -423,9 +387,9 @@ def train(args):
         loss = loss.mean()                # 平均なのでbatch_sizeで割る必要なし
 
         accelerator.backward(loss)
-        if accelerator.sync_gradients:
+        if accelerator.sync_gradients and args.max_grad_norm != 0.0:
           params_to_clip = network.get_trainable_params()
-          accelerator.clip_grad_norm_(params_to_clip, 1.0)  # args.max_grad_norm)
+          accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
 
         optimizer.step()
         lr_scheduler.step()
@@ -437,8 +401,13 @@ def train(args):
         global_step += 1
 
       current_loss = loss.detach().item()
+      if epoch == 0:
+        loss_list.append(current_loss)
+      else:
+        loss_total -= loss_list[step]
+        loss_list[step] = current_loss
       loss_total += current_loss
-      avr_loss = loss_total / (step+1)
+      avr_loss = loss_total / len(loss_list)
       logs = {"loss": avr_loss}  # , "lr": lr_scheduler.get_last_lr()[0]}
       progress_bar.set_postfix(**logs)
 
@@ -450,7 +419,7 @@ def train(args):
         break
 
     if args.logging_dir is not None:
-      logs = {"loss/epoch": loss_total / len(train_dataloader)}
+      logs = {"loss/epoch": loss_total / len(loss_list)}
       accelerator.log(logs, step=epoch+1)
 
     accelerator.wait_for_everyone()
@@ -461,6 +430,7 @@ def train(args):
       def save_func():
         ckpt_name = train_util.EPOCH_FILE_NAME.format(model_name, epoch + 1) + '.' + args.save_model_as
         ckpt_file = os.path.join(args.output_dir, ckpt_name)
+        metadata["ss_training_finished_at"] = str(time.time())
         print(f"saving checkpoint: {ckpt_file}")
         unwrap_model(network).save_weights(ckpt_file, save_dtype, None if args.no_metadata else metadata)
 
@@ -478,6 +448,7 @@ def train(args):
     # end of epoch
 
   metadata["ss_epoch"] = str(num_train_epochs)
+  metadata["ss_training_finished_at"] = str(time.time())
 
   is_main_process = accelerator.is_main_process
   if is_main_process:
@@ -506,8 +477,9 @@ if __name__ == '__main__':
   parser = argparse.ArgumentParser()
 
   train_util.add_sd_models_arguments(parser)
-  train_util.add_dataset_arguments(parser, True, True)
+  train_util.add_dataset_arguments(parser, True, True, True)
   train_util.add_training_arguments(parser, True)
+  train_util.add_optimizer_arguments(parser)
 
   parser.add_argument("--no_metadata", action='store_true', help="do not save metadata in output model / メタデータを出力先モデルに保存しない")
   parser.add_argument("--save_model_as", type=str, default="safetensors", choices=[None, "ckpt", "pt", "safetensors"],
@@ -515,10 +487,6 @@ if __name__ == '__main__':
 
   parser.add_argument("--unet_lr", type=float, default=None, help="learning rate for U-Net / U-Netの学習率")
   parser.add_argument("--text_encoder_lr", type=float, default=None, help="learning rate for Text Encoder / Text Encoderの学習率")
-  parser.add_argument("--lr_scheduler_num_cycles", type=int, default=1,
-                      help="Number of restarts for cosine scheduler with restarts / cosine with restartsスケジューラでのリスタート回数")
-  parser.add_argument("--lr_scheduler_power", type=float, default=1,
-                      help="Polynomial power for polynomial scheduler / polynomialスケジューラでのpolynomial power")
 
   parser.add_argument("--network_weights", type=str, default=None,
                       help="pretrained weights for network / 学習するネットワークの初期重み")
