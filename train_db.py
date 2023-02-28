@@ -8,6 +8,9 @@ import itertools
 import math
 import os
 
+import yaml
+import datetime
+
 from tqdm import tqdm
 import torch
 from accelerate.utils import set_seed
@@ -337,10 +340,38 @@ if __name__ == '__main__':
   train_util.add_sd_saving_arguments(parser)
   train_util.add_optimizer_arguments(parser)
 
+  parser.add_argument("--config_file", type=str, default=None, help="using .yaml instead of args to pass hyperparameter")
   parser.add_argument("--no_token_padding", action="store_true",
                       help="disable token padding (same as Diffuser's DreamBooth) / トークンのpaddingを無効にする（Diffusers版DreamBoothと同じ動作）")
   parser.add_argument("--stop_text_encoder_training", type=int, default=None,
                       help="steps to stop text encoder training, -1 for no training / Text Encoderの学習を止めるステップ数、-1で最初から学習しない")
 
   args = parser.parse_args()
+
+  if args.config_file:
+      config_path = args.config_file + ".yaml" if not args.config_file.endswith(".yaml") else args.config_file
+      if os.path.exists(config_path):
+          print(f"Loading settings from {config_path}...")
+          with open(config_path, "r") as f:
+              config_dict = yaml.unsafe_load(f)
+          
+          # to convert all str numeric back to int or float
+          for key, value in config_dict.items():
+              if isinstance(value, str):
+                  try:
+                      config_dict[key] = int(value)
+                  except ValueError:
+                      try:
+                          config_dict[key] = float(value)
+                      except ValueError:
+                          pass
+          
+          config_args = argparse.Namespace(**config_dict)
+          args = parser.parse_args(namespace=config_args)
+          args.config_file = args.config_file.split(".")[0]
+          if args.resolution:
+            args.resolution = str(args.resolution)
+      else:
+          print(f"{config_path} not found.")
+          
   train(args)

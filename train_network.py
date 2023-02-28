@@ -9,6 +9,9 @@ import random
 import time
 import json
 
+import yaml
+import datetime
+
 from tqdm import tqdm
 import torch
 from accelerate.utils import set_seed
@@ -504,4 +507,31 @@ if __name__ == '__main__':
                       help="arbitrary comment string stored in metadata / メタデータに記録する任意のコメント文字列")
 
   args = parser.parse_args()
+
+  if args.config_file:
+      config_path = args.config_file + ".yaml" if not args.config_file.endswith(".yaml") else args.config_file
+      if os.path.exists(config_path):
+          print(f"Loading settings from {config_path}...")
+          with open(config_path, "r") as f:
+              config_dict = yaml.unsafe_load(f)
+          
+          # to convert all str numeric back to int or float
+          for key, value in config_dict.items():
+              if isinstance(value, str):
+                  try:
+                      config_dict[key] = int(value)
+                  except ValueError:
+                      try:
+                          config_dict[key] = float(value)
+                      except ValueError:
+                          pass
+          
+          config_args = argparse.Namespace(**config_dict)
+          args = parser.parse_args(namespace=config_args)
+          args.config_file = args.config_file.split(".")[0]
+          if args.resolution:
+            args.resolution = str(args.resolution)
+      else:
+          print(f"{config_path} not found.")
+          
   train(args)
