@@ -61,6 +61,8 @@ import os
 import random
 import re
 
+import toml
+
 import diffusers
 import numpy as np
 import torch
@@ -2772,5 +2774,27 @@ if __name__ == '__main__':
   parser.add_argument("--control_net_ratios", type=float, default=None, nargs='*',
                       help='ControlNet guidance ratio for steps / ControlNetでガイドするステップ比率')
 
+  parser.add_argument("--config_file", type=str, default=None, help="using .toml instead of args to pass hyperparameter")
+
   args = parser.parse_args()
+
+  if args.config_file:
+      config_path = args.config_file + ".toml" if not args.config_file.endswith(".toml") else args.config_file
+      if os.path.exists(config_path):
+          print(f"Loading settings from {config_path}...")
+          with open(config_path, "r") as f:
+              config_dict = toml.load(f)
+
+          ignore_nesting_dict = {}
+          for section_name, section_dict in config_dict.items():
+              for key, value in section_dict.items():
+                  ignore_nesting_dict[key] = value
+
+          config_args = argparse.Namespace(**ignore_nesting_dict)
+          args = parser.parse_args(namespace=config_args)
+          args.config_file = args.config_file.split(".")[0]
+          print(args.config_file)
+      else:
+          print(f"{config_path} not found.")
+          
   main(args)
