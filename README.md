@@ -282,7 +282,3 @@ Colab UI changes:
 
 ## Credit
 [Kohya](https://twitter.com/kohya_ss) | [Lopho](https://github.com/lopho/stable-diffusion-prune) for prune script | Just for my part
-
-
-
-

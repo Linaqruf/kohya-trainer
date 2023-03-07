@@ -1,8 +1,10 @@
-# training with captions
-# XXX dropped option: hypernetwork training
+# DreamBooth training
+# XXX dropped option: fine_tune
 
-import argparse
 import gc
+import time
+import argparse
+import itertools
 import math
 import os
 import toml
@@ -20,13 +22,14 @@ from library.config_util import (
   BlueprintGenerator,
 )
 
+
 def collate_fn(examples):
   return examples[0]
 
 
 def train(args):
   train_util.verify_training_args(args)
-  train_util.prepare_dataset_args(args, True)
+  train_util.prepare_dataset_args(args, False)
 
   cache_latents = args.cache_latents
 
@@ -35,31 +38,28 @@ def train(args):
 
   tokenizer = train_util.load_tokenizer(args)
 
-  blueprint_generator = BlueprintGenerator(ConfigSanitizer(False, True, True))
+  blueprint_generator = BlueprintGenerator(ConfigSanitizer(True, False, True))
   if args.dataset_config is not None:
     print(f"Load dataset config from {args.dataset_config}")
     user_config = config_util.load_user_config(args.dataset_config)
-    ignored = ["train_data_dir", "in_json"]
+    ignored = ["train_data_dir", "reg_data_dir"]
     if any(getattr(args, attr) is not None for attr in ignored):
       print("ignore following options because config file is found: {0} / 設定ファイルが利用されるため以下のオプションは無視されます: {0}".format(', '.join(ignored)))
   else:
     user_config = {
       "datasets": [{
-        "subsets": [{
-          "image_dir": args.train_data_dir,
-          "metadata_file": args.in_json,
-        }]
+        "subsets": config_util.generate_dreambooth_subsets_config_by_subdirs(args.train_data_dir, args.reg_data_dir)
       }]
     }
 
   blueprint = blueprint_generator.generate(user_config, args, tokenizer=tokenizer)
   train_dataset_group = config_util.generate_dataset_group_by_blueprint(blueprint.dataset_group)
 
+  if args.no_token_padding:
+    train_dataset_group.disable_token_padding()
+
   if args.debug_dataset:
     train_util.debug_dataset(train_dataset_group)
-    return
-  if len(train_dataset_group) == 0:
-    print("No data found. Please verify the metadata file and train_data_dir option. / 画像がありません。メタデータおよびtrain_data_dirオプションを確認してください。")
     return
 
   if cache_latents:
@@ -67,6 +67,12 @@ def train(args):
 
   # acceleratorを準備する
   print("prepare accelerator")
+
+  if args.gradient_accumulation_steps > 1:
+    print(f"gradient_accumulation_steps is {args.gradient_accumulation_steps}. accelerate does not support gradient_accumulation_steps when training multiple models (U-Net and Text Encoder), so something might be wrong")
+    print(
+        f"gradient_accumulation_stepsが{args.gradient_accumulation_steps}に設定されています。accelerateは複数モデル（U-NetおよびText Encoder）の学習時にgradient_accumulation_stepsをサポートしていないため結果は未知数です")
+
   accelerator, unwrap_model = train_util.prepare_accelerator(args)
 
   # mixed precisionに対応した型を用意しておき適宜castする
@@ -90,34 +96,8 @@ def train(args):
     save_stable_diffusion_format = args.save_model_as.lower() == 'ckpt' or args.save_model_as.lower() == 'safetensors'
     use_safetensors = args.use_safetensors or ("safetensors" in args.save_model_as.lower())
 
-  # Diffusers版のxformers使用フラグを設定する関数
-  def set_diffusers_xformers_flag(model, valid):
-    #   model.set_use_memory_efficient_attention_xformers(valid)            # 次のリリースでなくなりそう
-    # pipeが自動で再帰的にset_use_memory_efficient_attention_xformersを探すんだって(;´Д｀)
-    # U-Netだけ使う時にはどうすればいいのか……仕方ないからコピって使うか
-    # 0.10.2でなんか巻き戻って個別に指定するようになった(;^ω^)
-
-    # Recursively walk through all the children.
-    # Any children which exposes the set_use_memory_efficient_attention_xformers method
-    # gets the message
-    def fn_recursive_set_mem_eff(module: torch.nn.Module):
-      if hasattr(module, "set_use_memory_efficient_attention_xformers"):
-        module.set_use_memory_efficient_attention_xformers(valid)
-
-      for child in module.children():
-        fn_recursive_set_mem_eff(child)
-
-    fn_recursive_set_mem_eff(model)
-
   # モデルに xformers とか memory efficient attention を組み込む
-  if args.diffusers_xformers:
-    print("Use xformers by Diffusers")
-    set_diffusers_xformers_flag(unet, True)
-  else:
-    # Windows版のxformersはfloatで学習できないのでxformersを使わない設定も可能にしておく必要がある
-    print("Disable Diffusers' xformers")
-    set_diffusers_xformers_flag(unet, False)
-    train_util.replace_unet_modules(unet, args.mem_eff_attn, args.xformers)
+  train_util.replace_unet_modules(unet, args.mem_eff_attn, args.xformers)
 
   # 学習を準備する
   if cache_latents:
@@ -132,40 +112,29 @@ def train(args):
     gc.collect()
 
   # 学習を準備する：モデルを適切な状態にする
-  training_models = []
+  train_text_encoder = args.stop_text_encoder_training is None or args.stop_text_encoder_training >= 0
+  unet.requires_grad_(True)                   # 念のため追加
+  text_encoder.requires_grad_(train_text_encoder)
+  if not train_text_encoder:
+    print("Text Encoder is not trained.")
+
   if args.gradient_checkpointing:
     unet.enable_gradient_checkpointing()
-  training_models.append(unet)
-
-  if args.train_text_encoder:
-    print("enable text encoder training")
-    if args.gradient_checkpointing:
-      text_encoder.gradient_checkpointing_enable()
-    training_models.append(text_encoder)
-  else:
-    text_encoder.to(accelerator.device, dtype=weight_dtype)
-    text_encoder.requires_grad_(False)             # text encoderは学習しない
-    if args.gradient_checkpointing:
-      text_encoder.gradient_checkpointing_enable()
-      text_encoder.train()                # required for gradient_checkpointing
-    else:
-      text_encoder.eval()
+    text_encoder.gradient_checkpointing_enable()
 
   if not cache_latents:
     vae.requires_grad_(False)
     vae.eval()
     vae.to(accelerator.device, dtype=weight_dtype)
 
-  for m in training_models:
-    m.requires_grad_(True)
-  params = []
-  for m in training_models:
-    params.extend(m.parameters())
-  params_to_optimize = params
-
   # 学習に必要なクラスを準備する
   print("prepare optimizer, data loader etc.")
-  _, _, optimizer = train_util.get_optimizer(args, trainable_params=params_to_optimize)
+  if train_text_encoder:
+    trainable_params = (itertools.chain(unet.parameters(), text_encoder.parameters()))
+  else:
+    trainable_params = unet.parameters()
+
+  _, _, optimizer = train_util.get_optimizer(args, trainable_params)
 
   # dataloaderを準備する
   # DataLoaderのプロセス数：0はメインプロセスになる
@@ -178,9 +147,12 @@ def train(args):
     args.max_train_steps = args.max_train_epochs * len(train_dataloader)
     print(f"override steps. steps for {args.max_train_epochs} epochs is / 指定エポックまでのステップ数: {args.max_train_steps}")
 
-  # lr schedulerを用意する
+  if args.stop_text_encoder_training is None:
+    args.stop_text_encoder_training = args.max_train_steps + 1                # do not stop until end
+
+  # lr schedulerを用意する TODO gradient_accumulation_stepsの扱いが何かおかしいかもしれない。後で確認する
   lr_scheduler = train_util.get_scheduler_fix(args.lr_scheduler, optimizer, num_warmup_steps=args.lr_warmup_steps,
-                                              num_training_steps=args.max_train_steps * args.gradient_accumulation_steps,
+                                              num_training_steps=args.max_train_steps,
                                               num_cycles=args.lr_scheduler_num_cycles, power=args.lr_scheduler_power)
 
   # 実験的機能：勾配も含めたfp16学習を行う　モデル全体をfp16にする
@@ -191,11 +163,14 @@ def train(args):
     text_encoder.to(weight_dtype)
 
   # acceleratorがなんかよろしくやってくれるらしい
-  if args.train_text_encoder:
+  if train_text_encoder:
     unet, text_encoder, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         unet, text_encoder, optimizer, train_dataloader, lr_scheduler)
   else:
     unet, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(unet, optimizer, train_dataloader, lr_scheduler)
+
+  if not train_text_encoder:
+    text_encoder.to(accelerator.device, dtype=weight_dtype)             # to avoid 'cpu' vs 'cuda' error
 
   # 実験的機能：勾配も含めたfp16学習を行う　PyTorchにパッチを当ててfp16でのgrad scaleを有効にする
   if args.full_fp16:
@@ -215,7 +190,8 @@ def train(args):
   # 学習する
   total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
   print("running training / 学習開始")
-  print(f"  num examples / サンプル数: {train_dataset_group.num_train_images}")
+  print(f"  num train images * repeats / 学習画像の数×繰り返し回数: {train_dataset_group.num_train_images}")
+  print(f"  num reg images / 正則化画像の数: {train_dataset_group.num_reg_images}")
   print(f"  num batches per epoch / 1epochのバッチ数: {len(train_dataloader)}")
   print(f"  num epochs / epoch数: {num_train_epochs}")
   print(f"  batch size per device / バッチサイズ: {args.train_batch_size}")
@@ -230,38 +206,49 @@ def train(args):
                                   num_train_timesteps=1000, clip_sample=False)
 
   if accelerator.is_main_process:
-    accelerator.init_trackers("finetuning")
+    accelerator.init_trackers("dreambooth")
 
+  loss_list = []
+  loss_total = 0.0
   for epoch in range(num_train_epochs):
     print(f"epoch {epoch+1}/{num_train_epochs}")
     train_dataset_group.set_current_epoch(epoch + 1)
 
-    for m in training_models:
-      m.train()
+    # 指定したステップ数までText Encoderを学習する：epoch最初の状態
+    unet.train()
+    # train==True is required to enable gradient_checkpointing
+    if args.gradient_checkpointing or global_step < args.stop_text_encoder_training:
+      text_encoder.train()
 
-    loss_total = 0
     for step, batch in enumerate(train_dataloader):
-      with accelerator.accumulate(training_models[0]):  # 複数モデルに対応していない模様だがとりあえずこうしておく
+      # 指定したステップ数でText Encoderの学習を止める
+      if global_step == args.stop_text_encoder_training:
+        print(f"stop text encoder training at step {global_step}")
+        if not args.gradient_checkpointing:
+          text_encoder.train(False)
+        text_encoder.requires_grad_(False)
+
+      with accelerator.accumulate(unet):
         with torch.no_grad():
-          if "latents" in batch and batch["latents"] is not None:
+          # latentに変換
+          if cache_latents:
             latents = batch["latents"].to(accelerator.device)
           else:
-            # latentに変換
             latents = vae.encode(batch["images"].to(dtype=weight_dtype)).latent_dist.sample()
           latents = latents * 0.18215
         b_size = latents.shape[0]
-
-        with torch.set_grad_enabled(args.train_text_encoder):
-          # Get the text embedding for conditioning
-          input_ids = batch["input_ids"].to(accelerator.device)
-          encoder_hidden_states = train_util.get_hidden_states(
-              args, input_ids, tokenizer, text_encoder, None if not args.full_fp16 else weight_dtype)
 
         # Sample noise that we'll add to the latents
         noise = torch.randn_like(latents, device=latents.device)
         if args.noise_offset:
           # https://www.crosslabs.org//blog/diffusion-with-offset-noise
           noise += args.noise_offset * torch.randn((latents.shape[0], latents.shape[1], 1, 1), device=latents.device)
+
+        # Get the text embedding for conditioning
+        with torch.set_grad_enabled(global_step < args.stop_text_encoder_training):
+          input_ids = batch["input_ids"].to(accelerator.device)
+          encoder_hidden_states = train_util.get_hidden_states(
+              args, input_ids, tokenizer, text_encoder, None if not args.full_fp16 else weight_dtype)
 
         # Sample a random timestep for each image
         timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (b_size,), device=latents.device)
@@ -280,13 +267,20 @@ def train(args):
         else:
           target = noise
 
-        loss = torch.nn.functional.mse_loss(noise_pred.float(), target.float(), reduction="mean")
+        loss = torch.nn.functional.mse_loss(noise_pred.float(), target.float(), reduction="none")
+        loss = loss.mean([1, 2, 3])
+
+        loss_weights = batch["loss_weights"]                      # 各sampleごとのweight
+        loss = loss * loss_weights
+
+        loss = loss.mean()                # 平均なのでbatch_sizeで割る必要なし
 
         accelerator.backward(loss)
         if accelerator.sync_gradients and args.max_grad_norm != 0.0:
-          params_to_clip = []
-          for m in training_models:
-            params_to_clip.extend(m.parameters())
+          if train_text_encoder:
+            params_to_clip = (itertools.chain(unet.parameters(), text_encoder.parameters()))
+          else:
+            params_to_clip = unet.parameters()
           accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
 
         optimizer.step()
@@ -300,16 +294,20 @@ def train(args):
 
         train_util.sample_images(accelerator, args, None, global_step, accelerator.device, vae, tokenizer, text_encoder, unet)
 
-      current_loss = loss.detach().item()        # 平均なのでbatch sizeは関係ないはず
+      current_loss = loss.detach().item()
       if args.logging_dir is not None:
         logs = {"loss": current_loss, "lr": float(lr_scheduler.get_last_lr()[0])}
         if args.optimizer_type.lower() == "DAdaptation".lower():  # tracking d*lr value
           logs["lr/d*lr"] = lr_scheduler.optimizers[0].param_groups[0]['d']*lr_scheduler.optimizers[0].param_groups[0]['lr']
         accelerator.log(logs, step=global_step)
 
-      # TODO moving averageにする
+      if epoch == 0:
+        loss_list.append(current_loss)
+      else:
+        loss_total -= loss_list[step]
+        loss_list[step] = current_loss
       loss_total += current_loss
-      avr_loss = loss_total / (step+1)
+      avr_loss = loss_total / len(loss_list)
       logs = {"loss": avr_loss}  # , "lr": lr_scheduler.get_last_lr()[0]}
       progress_bar.set_postfix(**logs)
 
@@ -317,7 +315,7 @@ def train(args):
         break
 
     if args.logging_dir is not None:
-      logs = {"loss/epoch": loss_total / len(train_dataloader)}
+      logs = {"loss/epoch": loss_total / len(loss_list)}
       accelerator.log(logs, step=epoch+1)
 
     accelerator.wait_for_everyone()
@@ -328,7 +326,7 @@ def train(args):
                                             save_dtype, epoch, num_train_epochs, global_step,  unwrap_model(text_encoder), unwrap_model(unet), vae)
 
     train_util.sample_images(accelerator, args, epoch + 1, global_step, accelerator.device, vae, tokenizer, text_encoder, unet)
-    
+
   is_main_process = accelerator.is_main_process
   if is_main_process:
     unet = unwrap_model(unet)
@@ -352,15 +350,16 @@ if __name__ == '__main__':
   parser = argparse.ArgumentParser()
 
   train_util.add_sd_models_arguments(parser)
-  train_util.add_dataset_arguments(parser, False, True, True)
-  train_util.add_training_arguments(parser, False)
+  train_util.add_dataset_arguments(parser, True, False, True)
+  train_util.add_training_arguments(parser, True)
   train_util.add_sd_saving_arguments(parser)
   train_util.add_optimizer_arguments(parser)
   config_util.add_config_arguments(parser)
 
-  parser.add_argument("--diffusers_xformers", action='store_true',
-                      help='use xformers by diffusers / Diffusersでxformersを使用する')
-  parser.add_argument("--train_text_encoder", action="store_true", help="train text encoder / text encoderも学習する")
+  parser.add_argument("--no_token_padding", action="store_true",
+                      help="disable token padding (same as Diffuser's DreamBooth) / トークンのpaddingを無効にする（Diffusers版DreamBoothと同じ動作）")
+  parser.add_argument("--stop_text_encoder_training", type=int, default=None,
+                      help="steps to stop text encoder training, -1 for no training / Text Encoderの学習を止めるステップ数、-1で最初から学習しない")
 
   args = parser.parse_args()
 
