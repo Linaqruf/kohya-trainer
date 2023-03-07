@@ -1,4 +1,4 @@
-# Kohya Trainer V13
+# Kohya Trainer V14
 ![GitHub Repo stars](https://img.shields.io/github/stars/Linaqruf/kohya-trainer?style=social)</a> <img src="https://visitor-badge.glitch.me/badge?page_id=linaqruf.kohya-repo-trainer" alt="visitor badge"/> [![](https://dcbadge.vercel.app/api/shield/931591564424253512?style=flat)](https://lookup.guru/931591564424253512) [![ko-fi](https://img.shields.io/badge/Support%20me%20on%20Ko--fi-F16061?logo=ko-fi&logoColor=white&style=flat)](https://ko-fi.com/linaqruf) <a href="https://saweria.co/linaqruf"><img alt="Saweria" src="https://img.shields.io/badge/Saweria-7B3F00?style=flat&logo=ko-fi&logoColor=white"/></a>
 
 ### Github Repository for [kohya-ss/sd-scripts](https://github.com/kohya-ss/sd-scripts) colab notebook implementation
@@ -12,6 +12,93 @@
 | [Cagliostro Colab UI](https://github.com/Linaqruf/sd-notebook-collection/blob/main/cagliostro-colab-ui.ipynb) `NEW`| A Customizable Stable Diffusion Web UI| [![](https://img.shields.io/static/v1?message=Open%20in%20Colab&logo=googlecolab&labelColor=5c5c5c&color=0f80c1&label=%20&style=for-the-badge)](https://colab.research.google.com/github/Linaqruf/sd-notebook-collection/blob/main/cagliostro-colab-ui.ipynb) | 
 
 ## Updates
+#### 2023
+##### v14 (07/03):
+__What Changes?__
+- Refactoring (again)
+  - Moved `support us` button to separated and hidden section
+  - Added `old commit` link to all notebook
+  - Deleted `clone sd-scripts` option because too risky, small changes my break notebook if new updates contain syntax from python > 3.9 
+  - Added `wd-1.5-beta-2` and `wd-1.5-beta-2-aesthetic` as pretrained model for `SDv2.1 768v model`, please use `--v2` and `--v_parameterization` if you wanna train with it.
+  - Removed `folder naming scheme` cell for colab dreambooth method, thanks to everyone who made this changes possible. Now you can set `train_data_dir` from gdrive path without worrying `<repeats>_<token> class>` ever again
+  -
+- Revamped `V. Training Model` section
+  - Now it has 6 major cell
+    1. Model Config:
+        - Specify pretrained model path, vae to use, your project name, outputh path and if you wanna train on `v2` and or `v_parameterization` here.
+    2. Dataset Config:
+        - This cell will create `dataset_config.toml` file based on your input. And that `.toml` file will be used for training.
+        - You can set `class_token` and `num_repeats` here instead of renaming your folder like before.
+        - Limitation: even though `--dataset_config` is powerful, but I'm making the workflow to only fit one `train_data_dir` and `reg_data_dir`, so probably it's not compatible to train on multiple concepts anymore. But you can always tweaks `.toml` file.
+        - For advanced users, please don't use markdown but instead tweak the python dictionaries yourself, click `show code` and you can add or remove variable, dataset, or dataset.subset from dict, especially if you want to train on multiple concepts.
+    3. Sample Prompt Config
+        - This cell will create `sample_prompt.txt` file based on your input. And that `.txt` file will be used for generating sample.
+        - Specify `sample_every_n_type` if you want to generate sample every n epochs or every n steps.
+        - The prompt weighting such as `( )` and `[ ]` are not working.
+        - Limitation: Only support 1 line of prompt at a time
+        - For advanced users, you can tweak `sample_prompt.txt` and add another prompt based on arguments below.
+        - Supported prompt arguments:
+            - `--n` : Negative Prompt
+            - `--w` : Width
+            - `--h` : Height
+            - `--d` : Seed, set to -1 for using random seed
+            - `--l` : CFG Scale
+            - `--s` : Sampler steps
+     4. Optimizer Config (LoRA and Optimizer Config)
+        - Additional Networks Config:
+          - Added support for LoRA in Convolutional Network a.k.a [KohakuBlueleaf/LoCon](https://github.com/KohakuBlueleaf/LoCon) training, please specify `locon.locon_kohya` in `network_module`
+          - Revamped `network_args`, now you can specify more than 2 custom args, but you need to specify it inside a list, e.g. `["conv_dim=64","conv_alpha=32"]`
+          - `network_args` for LoCon training as follow: `"conv_dim=RANK_FOR_CONV" "conv_alpha=ALPHA_FOR_CONV" "dropout=DROPOUT_RATE"`
+          - Remember conv_dim + network_dim, so if you specify both at 128, you probably will get 300mb filesize LoRA
+          - Now you can specify if you want to train on both UNet and Text Encoder or just wanna train one of them.
+        - Optimizer Config
+          - Similar to `network_args`, now you can specify more than 2 custom args, but you need to specify it inside a list, e.g. for DAdaptation : `["decouple=true","weight_decay=0.6"]`
+          - Deleted `lr_scheduler_args` and added `lr_scheduler_num_cycles` and `lr_scheduler_power` back
+          - Added `Adafactor` for `lr_scheduler`
+     5. Training Config
+        - This cell will create `config_file.toml` file based on your input. And that `.toml` file will be used for training.
+        - Added `num_epochs` back to LoRA notebook and `max_train_steps` to dreambooth and native training 
+        - For advanced users, you can tweak training config without re-run specific training cell by editing `config_file.toml`
+     6. Start Training
+        - Set config path to start training. 
+           - sample_prompt.txt
+           - config_file.toml
+           - dataset_config.toml
+        - You can also import training config from other source, but make sure you change all important variable such as what model and what vae did you use 
+- Revamped `VI. Testing` section  
+  - Deleted all wrong indentation
+  - Added `Portable Web UI` as an alternative to try your trained model and LoRA, make sure you still got more time.
+- Added new changes to upload `config_file` to huggingface.
+
+## TO-DO
+- Update `fast-kohya-trainer.ipynb`
+- Update `Cagliostro Colab UI`
+
+## Useful Links
+- Official repository : [kohya-ss/sd-scripts](https://github.com/kohya-ss/sd-scripts)
+- Gradio Web UI Implementation : [bmaltais/kohya_ss](https://github.com/bmaltais/kohya_ss)
+- Automatic1111 Web UI extensions : [dPn08/kohya-sd-scripts-webui](https://github.com/ddPn08/kohya-sd-scripts-webui)
+
+## Overview
+- Fine tuning of Stable Diffusion's U-Net using Diffusers
+- Addressing improvements from the NovelAI article, such as using the output of the penultimate layer of CLIP (Text Encoder) instead of the last layer and learning at non-square resolutions with aspect ratio bucketing.
+- Extends token length from 75 to 225 and offers automatic caption and automatic tagging with BLIP, DeepDanbooru, and WD14Tagger
+- Supports hypernetwork learning and is compatible with Stable Diffusion v2.0 (base and 768/v)
+- By default, does not train Text Encoder for fine tuning of the entire model, but option to train Text Encoder is available.
+- Ability to make learning even more flexible than with DreamBooth by preparing a certain number of images (several hundred or more seems to be desirable).
+
+## Original post for each dedicated script:
+- [gen_img_diffusers](https://note.com/kohya_ss/n/n2693183a798e)
+- [merge_vae](https://note.com/kohya_ss/n/nf5893a2e719c)
+- [convert_diffusers20_original_sd](https://note.com/kohya_ss/n/n374f316fe4ad)
+- [detect_face_rotate](https://note.com/kohya_ss/n/nad3bce9a3622)
+- [diffusers_fine_tuning](https://note.com/kohya_ss/n/nbf7ce8d80f29)
+- [train_db_fixed](https://note.com/kohya_ss/n/nee3ed1649fb6)
+- [merge_block_weighted](https://note.com/kohya_ss/n/n9a485a066d5b)
+
+## Change Logs:
+
+#### 2023
 ##### v13 (25/02):
 __What Changes?__
 - Of course refactoring, cleaning and make the code and cells more readable and easy to maintain.
@@ -74,32 +161,6 @@ __News__
  
 Training script changes:
 - Please read [kohya-ss/sd-scripts](https://github.com/kohya-ss/sd-scripts) for recent updates.
-
-## Useful Links
-- Official repository : [kohya-ss/sd-scripts](https://github.com/kohya-ss/sd-scripts)
-- Gradio Web UI Implementation : [bmaltais/kohya_ss](https://github.com/bmaltais/kohya_ss)
-- Automatic1111 Web UI extensions : [dPn08/kohya-sd-scripts-webui](https://github.com/ddPn08/kohya-sd-scripts-webui)
-
-## Overview
-- Fine tuning of Stable Diffusion's U-Net using Diffusers
-- Addressing improvements from the NovelAI article, such as using the output of the penultimate layer of CLIP (Text Encoder) instead of the last layer and learning at non-square resolutions with aspect ratio bucketing.
-- Extends token length from 75 to 225 and offers automatic caption and automatic tagging with BLIP, DeepDanbooru, and WD14Tagger
-- Supports hypernetwork learning and is compatible with Stable Diffusion v2.0 (base and 768/v)
-- By default, does not train Text Encoder for fine tuning of the entire model, but option to train Text Encoder is available.
-- Ability to make learning even more flexible than with DreamBooth by preparing a certain number of images (several hundred or more seems to be desirable).
-
-## Original post for each dedicated script:
-- [gen_img_diffusers](https://note.com/kohya_ss/n/n2693183a798e)
-- [merge_vae](https://note.com/kohya_ss/n/nf5893a2e719c)
-- [convert_diffusers20_original_sd](https://note.com/kohya_ss/n/n374f316fe4ad)
-- [detect_face_rotate](https://note.com/kohya_ss/n/nad3bce9a3622)
-- [diffusers_fine_tuning](https://note.com/kohya_ss/n/nbf7ce8d80f29)
-- [train_db_fixed](https://note.com/kohya_ss/n/nee3ed1649fb6)
-- [merge_block_weighted](https://note.com/kohya_ss/n/n9a485a066d5b)
-
-## Change Logs:
-
-#### 2023
 
 ##### v12 (05/02):
 __What Changes?__
