@@ -1,4 +1,4 @@
-# Kohya Trainer V14
+# Kohya Trainer
 ![GitHub Repo stars](https://img.shields.io/github/stars/Linaqruf/kohya-trainer?style=social)</a> <img src="https://visitor-badge.glitch.me/badge?page_id=linaqruf.kohya-repo-trainer" alt="visitor badge"/> [![](https://dcbadge.vercel.app/api/shield/931591564424253512?style=flat)](https://lookup.guru/931591564424253512) [![ko-fi](https://img.shields.io/badge/Support%20me%20on%20Ko--fi-F16061?logo=ko-fi&logoColor=white&style=flat)](https://ko-fi.com/linaqruf) <a href="https://saweria.co/linaqruf"><img alt="Saweria" src="https://img.shields.io/badge/Saweria-7B3F00?style=flat&logo=ko-fi&logoColor=white"/></a>
 
 ### Github Repository for [kohya-ss/sd-scripts](https://github.com/kohya-ss/sd-scripts) colab notebook implementation
@@ -13,6 +13,17 @@
 
 ## Updates
 #### 2023
+##### v14.1 (09/03):
+__What Changes?__
+- Fix xformers version for all notebook to adapt `Python 3.9.16`
+- Added new `network_module` : `lycoris.kohya`. Read [KohakuBlueleaf/LyCORIS](https://github.com/KohakuBlueleaf/Lycoris)
+  - Previously LoCon, now it's called `LyCORIS`, a Home for custom network module for [kohya-ss/sd-scripts](https://github.com/kohya-ss/sd-scripts).
+  - Algo List as of now: 
+    - lora: Conventional Methods a.k.a LoCon
+    - loha: Hadamard product representation introduced by FedPara
+  - For backward compatibility, `locon.locon_kohya` still exist, but you can train LoCon in the new `lycoris.kohya` module as well by specify `["algo=lora"]` in the `network_args`
+- Added new condition to enable or disable `generating sample every n epochs/steps`, by disabling it, `sample_every_n_type_value` automatically set to int(999999)
+
 ##### v14 (07/03):
 __What Changes?__
 - Refactoring (again)
@@ -69,10 +80,6 @@ __What Changes?__
   - Deleted all wrong indentation
   - Added `Portable Web UI` as an alternative to try your trained model and LoRA, make sure you still got more time.
 - Added new changes to upload `config_file` to huggingface.
-
-## TO-DO
-- Update `fast-kohya-trainer.ipynb`
-- Update `Cagliostro Colab UI`
 
 ## Useful Links
 - Official repository : [kohya-ss/sd-scripts](https://github.com/kohya-ss/sd-scripts)
