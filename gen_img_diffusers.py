@@ -61,8 +61,6 @@ import os
 import random
 import re
 
-import toml
-
 import diffusers
 import numpy as np
 import torch
@@ -1651,10 +1649,11 @@ def get_unweighted_text_embeddings(
       if pad == eos:                        # v1
         text_input_chunk[:, -1] = text_input[0, -1]
       else:                                 # v2
-        if text_input_chunk[:, -1] != eos and text_input_chunk[:, -1] != pad:     # 最後に普通の文字がある
-          text_input_chunk[:, -1] = eos
-        if text_input_chunk[:, 1] == pad:                                         # BOSだけであとはPAD
-          text_input_chunk[:, 1] = eos
+        for j in range(len(text_input_chunk)):
+          if text_input_chunk[j, -1] != eos and text_input_chunk[j, -1] != pad:     # 最後に普通の文字がある
+            text_input_chunk[j, -1] = eos
+          if text_input_chunk[j, 1] == pad:                                         # BOSだけであとはPAD
+            text_input_chunk[j, 1] = eos
 
       if clip_skip is None or clip_skip == 1:
         text_embedding = pipe.text_encoder(text_input_chunk)[0]
@@ -2278,12 +2277,25 @@ def main(args):
       mask_images = l
 
   # 画像サイズにオプション指定があるときはリサイズする
-  if init_images is not None and args.W is not None and args.H is not None:
-    print(f"resize img2img source images to {args.W}*{args.H}")
-    init_images = resize_images(init_images, (args.W, args.H))
+  if args.W is not None and args.H is not None:
+    if init_images is not None:
+      print(f"resize img2img source images to {args.W}*{args.H}")
+      init_images = resize_images(init_images, (args.W, args.H))
     if mask_images is not None:
       print(f"resize img2img mask images to {args.W}*{args.H}")
       mask_images = resize_images(mask_images, (args.W, args.H))
+
+  if networks and mask_images:
+    # mask を領域情報として流用する、現在は1枚だけ対応
+    # TODO 複数のnetwork classの混在時の考慮
+    print("use mask as region")
+    # import cv2
+    # for i in range(3):
+    #   cv2.imshow("msk", np.array(mask_images[0])[:,:,i])
+    #   cv2.waitKey()
+    #   cv2.destroyAllWindows()
+    networks[0].__class__.set_regions(networks, np.array(mask_images[0]))
+    mask_images = None
 
   prev_image = None               # for VGG16 guided
   if args.guide_image_path is not None:
@@ -2774,27 +2786,5 @@ if __name__ == '__main__':
   parser.add_argument("--control_net_ratios", type=float, default=None, nargs='*',
                       help='ControlNet guidance ratio for steps / ControlNetでガイドするステップ比率')
 
-  parser.add_argument("--config_file", type=str, default=None, help="using .toml instead of args to pass hyperparameter")
-
   args = parser.parse_args()
-
-  if args.config_file:
-      config_path = args.config_file + ".toml" if not args.config_file.endswith(".toml") else args.config_file
-      if os.path.exists(config_path):
-          print(f"Loading settings from {config_path}...")
-          with open(config_path, "r") as f:
-              config_dict = toml.load(f)
-
-          ignore_nesting_dict = {}
-          for section_name, section_dict in config_dict.items():
-              for key, value in section_dict.items():
-                  ignore_nesting_dict[key] = value
-
-          config_args = argparse.Namespace(**ignore_nesting_dict)
-          args = parser.parse_args(namespace=config_args)
-          args.config_file = args.config_file.split(".")[0]
-          print(args.config_file)
-      else:
-          print(f"{config_path} not found.")
-          
   main(args)
