@@ -55,7 +55,7 @@ __What Changes?__
   - User can choose which `network_category` to train, option: `["LoRA", "LoCon", "LoCon_Lycoris", "LoHa"]`
     - `LoRA` is normal LoRA, only trained cross-attention/transformer layer
     - `LoCon` is LoRA for Convolutional Network but using `networks.lora` as default `network_module`, doesn't support `dropout`
-    - `LoCon_Lycoris` is LoRA for Convolutional Network but uisng `lycoris.kohya` as default `network_module`, good for training style, bad for training object
+    - `LoCon_Lycoris` is LoRA for Convolutional Network but using `lycoris.kohya` as default `network_module`
       - Why? current state of LoCon trained with lycoris==0.1.3 can't be loaded in Additional Network extension in Web UI, because:
         1. AddNet extension doesn't support `cp_decomposition`
         2. LyCORIS developer is temporarily removing hook support for AddNet extension to prevent code conflict
