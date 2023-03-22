@@ -63,7 +63,7 @@ __What Changes?__
   - `conv_dim` and `conv_alpha` now has separated markdown field
 - Changed `Visualize loss graph (Optional)` position to `6.1`, because it seems has dependency conflict with `6.4. Launch Portable Web UI`
 - `6.3. Inference` set default `network_module` to `networks.lora`. Doesn't support LoCon and LoHa trained with LyCORIS.
-- Revamped `6.4. Launch Portable Web UI` to match the latest `[Cagliostro Colab UI](https://github.com/Linaqruf/sd-notebook-collection/blob/main/cagliostro-colab-ui.ipynb)`
+- Revamped `6.4. Launch Portable Web UI` to match the latest [Cagliostro Colab UI](https://github.com/Linaqruf/sd-notebook-collection/blob/main/cagliostro-colab-ui.ipynb)
   
 ## Useful Links
 - Official repository : [kohya-ss/sd-scripts](https://github.com/kohya-ss/sd-scripts)
