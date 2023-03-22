@@ -21,6 +21,7 @@ __What Changes?__
 - Removed `delete metadata` option in `4.1. Data Cleaning` cell, no more accidentally deleted metadata.
 - Added `remove_underscore` option in `4.2.2. Waifu Diffusion 1.4 Tagger V2` cell
 - Revamped `4.2.3. Custom Caption/Tag (Optional)` cell, now you can add/remove desired tags.
+  - Tag example: `1girl, brown hair, school uniform, smile`
   - if your tag has spaces, replace that spaces (` `) with underscore (`_`): 
       - custom_tag	: `blue_berry`
       - output			: `blue berry, 1girl, brown hair, school uniform, smile`
