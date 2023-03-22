@@ -1,17 +1,95 @@
 # Kohya Trainer
-![GitHub Repo stars](https://img.shields.io/github/stars/Linaqruf/kohya-trainer?style=social)</a> [![ko-fi](https://img.shields.io/badge/Support%20me%20on%20Ko--fi-F16061?logo=ko-fi&logoColor=white&style=flat)](https://ko-fi.com/linaqruf) <a href="https://saweria.co/linaqruf"><img alt="Saweria" src="https://img.shields.io/badge/Saweria-7B3F00?style=flat&logo=ko-fi&logoColor=white"/></a>
+[![GitHub Repo stars](https://img.shields.io/github/stars/Linaqruf/kohya-trainer?style=social)](https://github.com/Linaqruf/kohya-trainer/)</a> [![ko-fi](https://img.shields.io/badge/Support%20me%20on%20Ko--fi-F16061?logo=ko-fi&logoColor=white&style=flat)](https://ko-fi.com/linaqruf) <a href="https://saweria.co/linaqruf"><img alt="Saweria" src="https://img.shields.io/badge/Saweria-7B3F00?style=flat&logo=ko-fi&logoColor=white"/></a>
 
-### Github Repository for [kohya-ss/sd-scripts](https://github.com/kohya-ss/sd-scripts) colab notebook implementation
+Github Repository for [kohya-ss/sd-scripts](https://github.com/kohya-ss/sd-scripts) colab notebook implementation
 | Notebook Name | Description | Link | Old Commit |
 | --- | --- | --- | --- |
-| [Kohya LoRA Dreambooth](https://github.com/Linaqruf/kohya-trainer/blob/main/kohya-LoRA-dreambooth.ipynb) | LoRA Training (Dreambooth method) | [![](https://img.shields.io/static/v1?message=Open%20in%20Colab&logo=googlecolab&labelColor=5c5c5c&color=0f80c1&label=%20&style=for-the-badge)](https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/kohya-LoRA-dreambooth.ipynb) | [![](https://img.shields.io/static/v1?message=Oldest%20Version&logo=googlecolab&labelColor=5c5c5c&color=e74c3c&label=%20&style=for-the-badge)](https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/bc0892647cb17492a106ad1d05716e091eda13f6/kohya-LoRA-dreambooth.ipynb) | 
-| [Kohya LoRA Fine-Tuning](https://github.com/Linaqruf/kohya-trainer/blob/main/kohya-LoRA-finetuner.ipynb) | LoRA Training (Fine-tune method) | [![](https://img.shields.io/static/v1?message=Open%20in%20Colab&logo=googlecolab&labelColor=5c5c5c&color=0f80c1&label=%20&style=for-the-badge)](https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/kohya-LoRA-finetuner.ipynb) | [![](https://img.shields.io/static/v1?message=Oldest%20Version&logo=googlecolab&labelColor=5c5c5c&color=e74c3c&label=%20&style=for-the-badge)](https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/fb96280233d3434819ba5850b2c968150c4720f7/kohya-LoRA-finetuner.ipynb) | 
-| [Kohya Trainer](https://github.com/Linaqruf/kohya-trainer/blob/main/kohya-trainer.ipynb) | Native Training | [![](https://img.shields.io/static/v1?message=Open%20in%20Colab&logo=googlecolab&labelColor=5c5c5c&color=0f80c1&label=%20&style=for-the-badge)](https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/kohya-trainer.ipynb) | [![](https://img.shields.io/static/v1?message=Oldest%20Version&logo=googlecolab&labelColor=5c5c5c&color=e74c3c&label=%20&style=for-the-badge)](https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/21ad4942a917d3fd1ad6c03d87d16677b427254b/kohya-trainer.ipynb) | 
-| [Kohya Dreambooth](https://github.com/Linaqruf/kohya-trainer/blob/main/kohya-dreambooth.ipynb) | Dreambooth Training | [![](https://img.shields.io/static/v1?message=Open%20in%20Colab&logo=googlecolab&labelColor=5c5c5c&color=0f80c1&label=%20&style=for-the-badge)](https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/kohya-dreambooth.ipynb) | [![](https://img.shields.io/static/v1?message=Oldest%20Version&logo=googlecolab&labelColor=5c5c5c&color=e74c3c&label=%20&style=for-the-badge)](https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/9c7f891981bee92cc7690f2094f892c46feb99e2/kohya-dreambooth.ipynb) | 
-| [Fast Kohya Trainer](https://github.com/Linaqruf/kohya-trainer/blob/main/fast-kohya-trainer.ipynb) `NEW`| Easy 1-click LoRA & Native Training| [![](https://img.shields.io/static/v1?message=Open%20in%20Colab&logo=googlecolab&labelColor=5c5c5c&color=0f80c1&label=%20&style=for-the-badge)](https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/fast-kohya-trainer.ipynb) |
-| [Cagliostro Colab UI](https://github.com/Linaqruf/sd-notebook-collection/blob/main/cagliostro-colab-ui.ipynb) `NEW`| A Customizable Stable Diffusion Web UI| [![](https://img.shields.io/static/v1?message=Open%20in%20Colab&logo=googlecolab&labelColor=5c5c5c&color=0f80c1&label=%20&style=for-the-badge)](https://colab.research.google.com/github/Linaqruf/sd-notebook-collection/blob/main/cagliostro-colab-ui.ipynb) | 
+| [Kohya LoRA Dreambooth](https://github.com/Linaqruf/kohya-trainer/blob/main/kohya-LoRA-dreambooth.ipynb) | LoRA Training (Dreambooth method) | [![](https://img.shields.io/static/v1?message=Open%20in%20Colab&logo=googlecolab&labelColor=5c5c5c&color=0f80c1&label=%20&style=flat)](https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/kohya-LoRA-dreambooth.ipynb) | [![](https://img.shields.io/static/v1?message=Older%20Version&logo=googlecolab&labelColor=5c5c5c&color=e74c3c&label=%20&style=flat)](https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/bc0892647cb17492a106ad1d05716e091eda13f6/kohya-LoRA-dreambooth.ipynb) | 
+| [Kohya LoRA Fine-Tuning](https://github.com/Linaqruf/kohya-trainer/blob/main/kohya-LoRA-finetuner.ipynb) | LoRA Training (Fine-tune method) | [![](https://img.shields.io/static/v1?message=Open%20in%20Colab&logo=googlecolab&labelColor=5c5c5c&color=0f80c1&label=%20&style=flat)](https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/kohya-LoRA-finetuner.ipynb) | [![](https://img.shields.io/static/v1?message=Older%20Version&logo=googlecolab&labelColor=5c5c5c&color=e74c3c&label=%20&style=flat)](https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/fb96280233d3434819ba5850b2c968150c4720f7/kohya-LoRA-finetuner.ipynb) | 
+| [Kohya Trainer](https://github.com/Linaqruf/kohya-trainer/blob/main/kohya-trainer.ipynb) | Native Training | [![](https://img.shields.io/static/v1?message=Open%20in%20Colab&logo=googlecolab&labelColor=5c5c5c&color=0f80c1&label=%20&style=flat)](https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/kohya-trainer.ipynb) | [![](https://img.shields.io/static/v1?message=Older%20Version&logo=googlecolab&labelColor=5c5c5c&color=e74c3c&label=%20&style=flat)](https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/21ad4942a917d3fd1ad6c03d87d16677b427254b/kohya-trainer.ipynb) | 
+| [Kohya Dreambooth](https://github.com/Linaqruf/kohya-trainer/blob/main/kohya-dreambooth.ipynb) | Dreambooth Training | [![](https://img.shields.io/static/v1?message=Open%20in%20Colab&logo=googlecolab&labelColor=5c5c5c&color=0f80c1&label=%20&style=flat)](https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/kohya-dreambooth.ipynb) | [![](https://img.shields.io/static/v1?message=Older%20Version&logo=googlecolab&labelColor=5c5c5c&color=e74c3c&label=%20&style=flat)](https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/9c7f891981bee92cc7690f2094f892c46feb99e2/kohya-dreambooth.ipynb) | 
+| [Fast Kohya Trainer](https://github.com/Linaqruf/kohya-trainer/blob/main/fast-kohya-trainer.ipynb) `NEW`| Easy 1-click LoRA & Native Training| [![](https://img.shields.io/static/v1?message=Open%20in%20Colab&logo=googlecolab&labelColor=5c5c5c&color=0f80c1&label=%20&style=flat)](https://colab.research.google.com/github/Linaqruf/kohya-trainer/blob/main/fast-kohya-trainer.ipynb) |
+| [Cagliostro Colab UI](https://github.com/Linaqruf/sd-notebook-collection/blob/main/cagliostro-colab-ui.ipynb) `NEW`| A Customizable Stable Diffusion Web UI| [![](https://img.shields.io/static/v1?message=Open%20in%20Colab&logo=googlecolab&labelColor=5c5c5c&color=0f80c1&label=%20&style=flat)](https://colab.research.google.com/github/Linaqruf/sd-notebook-collection/blob/main/cagliostro-colab-ui.ipynb) | 
 
 ## Updates
+#### 2023
+##### v14.6 (21/03):
+__What Changes?__
+- Reformat 4 main notebook with [black python formatter](https://github.com/psf/black).
+- Changed `xformers` wheels version to `0.0.17.dev476` and `triton` to `2.0.0.post1`, to prevent triton installing `torch 2.0.0`.
+- Downgrading google perftools and tcmalloc for ram patch, credit to [camenduru/stable-diffusion-webui-colab](https://github.com/camenduru/stable-diffusion-webui-colab).
+- Removed `delete metadata` option in `4.1. Data Cleaning` cell, no more accidentally deleted metadata.
+- Added `remove_underscore` option in `4.2.2. Waifu Diffusion 1.4 Tagger V2` cell
+- Revamped `4.2.3. Custom Caption/Tag (Optional)` cell, now you can add/remove desired tags.
+  - Tag example: `1girl, brown hair, school uniform, smile`
+  - if your tag has spaces, replace that spaces (` `) with underscore (`_`): 
+      - custom_tag	: `blue_berry`
+      - output			: `blue berry, 1girl, brown hair, school uniform, smile`
+  - if you set `append` to `True`, your custom tag will be added to end of line instead
+      - custom_tag	: `blue_berry`
+      - output			: `1girl, brown hair, school uniform, smile, blue berry`
+  - if you want to add or remove multiple tags, add space (` `):
+      - custom_tag : `blue_berry red_juice`, 
+      - output: `blue berry, red juice, 1girl, brown hair, school uniform, smile`
+  - if you want to remove a tag, set `remove_tag` to `True`
+      - custom_tag	: `brown hair`
+      - output			: `1girl, school uniform, smile, blue berry`
+- Fixes bug when generating `.txt` or `.caption` files in `4.2.3. Custom Caption/Tag (Optional)`, it's added additional (.), e.g. `image..txt`
+- Deleted `5.3. Sample prompt config`, sample prompt automatically created. If you want to add another prompt. Edit `sample_prompt.txt` directly in colab notebook editor
+- Even though `token` is not `caption`, now you can add token to caption files in `5.2. Dataset Config`, this will function in the same way as the `4.2.3. Custom Caption/Tag (Optional)` cell. By doing this, it automatically set `keep_tokens` to > `1`
+  - You can enable or disable the sample prompt in `5.4. Training config`
+  - Automatically generating sample every 1 epoch for `LoRA` notebook and every 100 steps for `Dreambooth` and `Finetuning` notebook
+  - The prompt weighting such as `( )` and `[ ]` are working.
+  - Support long prompt weighting pipeline
+- Revamped `5.3. LoRA and Optimizer Config`
+  - No more manually setting the `network_module`
+  - No more manually setting the `network_args`
+  - Added `Recommended Values:
+ 
+    | network_category | network_dim | network_alpha | conv_dim | conv_alpha |
+    | :---: | :---: | :---: | :---: | :---: |
+    | LoRA | 32 | 1 | - | - |
+    | LoCon | 16 | 8 | 8 | 1 |
+    | LoHa | 8 | 4 | 4 | 1 |
+
+  - User can choose which `network_category` to train, option: `["LoRA", "LoCon", "LoCon_Lycoris", "LoHa"]`
+    - `LoRA` is normal LoRA, only trained cross-attention/transformer layer
+    - `LoCon` is LoRA for Convolutional Network but using `networks.lora` as default `network_module`, doesn't support `dropout`
+    - `LoCon_Lycoris` is LoRA for Convolutional Network but uisng `lycoris.kohya` as default `network_module`, good for training style, bad for training object
+      - Why? current state of LoCon trained with lycoris==0.1.3 can't be loaded in Additional Network extension in Web UI, because:
+        1. AddNet extension doesn't support `cp_decomposition`
+        2. LyCORIS developer is temporarily removing hook support for AddNet extension to prevent code conflict
+    - `LoHa` is LoRA with Hadamard Product representation, slower to train than other `network_category`, need more documentation
+  - Deleted `network_module` support for `locon.locon_kohya` as it's now deprecated
+  - `conv_dim` and `conv_alpha` now has separated markdown field
+- Changed `Visualize loss graph (Optional)` position to `6.1`, because it seems has dependency conflict with `6.4. Launch Portable Web UI`
+- `6.3. Inference` set default `network_module` to `networks.lora`. Doesn't support LoCon and LoHa trained with LyCORIS.
+- Revamped `6.4. Launch Portable Web UI` to match the latest [Cagliostro Colab UI](https://github.com/Linaqruf/sd-notebook-collection/blob/main/cagliostro-colab-ui.ipynb)
+  
+## Useful Links
+- Official repository : [kohya-ss/sd-scripts](https://github.com/kohya-ss/sd-scripts)
+- Gradio Web UI Implementation : [bmaltais/kohya_ss](https://github.com/bmaltais/kohya_ss)
+- Automatic1111 Web UI extensions : [dPn08/kohya-sd-scripts-webui](https://github.com/ddPn08/kohya-sd-scripts-webui)
+
+## Overview
+- Fine tuning of Stable Diffusion's U-Net using Diffusers
+- Addressing improvements from the NovelAI article, such as using the output of the penultimate layer of CLIP (Text Encoder) instead of the last layer and learning at non-square resolutions with aspect ratio bucketing.
+- Extends token length from 75 to 225 and offers automatic caption and automatic tagging with BLIP, DeepDanbooru, and WD14Tagger
+- Supports hypernetwork learning and is compatible with Stable Diffusion v2.0 (base and 768/v)
+- By default, does not train Text Encoder for fine tuning of the entire model, but option to train Text Encoder is available.
+- Ability to make learning even more flexible than with DreamBooth by preparing a certain number of images (several hundred or more seems to be desirable).
+
+## Original post for each dedicated script:
+- [gen_img_diffusers](https://note.com/kohya_ss/n/n2693183a798e)
+- [merge_vae](https://note.com/kohya_ss/n/nf5893a2e719c)
+- [convert_diffusers20_original_sd](https://note.com/kohya_ss/n/n374f316fe4ad)
+- [detect_face_rotate](https://note.com/kohya_ss/n/nad3bce9a3622)
+- [diffusers_fine_tuning](https://note.com/kohya_ss/n/nbf7ce8d80f29)
+- [train_db_fixed](https://note.com/kohya_ss/n/nee3ed1649fb6)
+- [merge_block_weighted](https://note.com/kohya_ss/n/n9a485a066d5b)
+
+## Change Logs:
+
 #### 2023
 ##### v14.1 (09/03):
 __What Changes?__
@@ -80,32 +158,6 @@ __What Changes?__
   - Deleted all wrong indentation
   - Added `Portable Web UI` as an alternative to try your trained model and LoRA, make sure you still got more time.
 - Added new changes to upload `config_file` to huggingface.
-
-## Useful Links
-- Official repository : [kohya-ss/sd-scripts](https://github.com/kohya-ss/sd-scripts)
-- Gradio Web UI Implementation : [bmaltais/kohya_ss](https://github.com/bmaltais/kohya_ss)
-- Automatic1111 Web UI extensions : [dPn08/kohya-sd-scripts-webui](https://github.com/ddPn08/kohya-sd-scripts-webui)
-
-## Overview
-- Fine tuning of Stable Diffusion's U-Net using Diffusers
-- Addressing improvements from the NovelAI article, such as using the output of the penultimate layer of CLIP (Text Encoder) instead of the last layer and learning at non-square resolutions with aspect ratio bucketing.
-- Extends token length from 75 to 225 and offers automatic caption and automatic tagging with BLIP, DeepDanbooru, and WD14Tagger
-- Supports hypernetwork learning and is compatible with Stable Diffusion v2.0 (base and 768/v)
-- By default, does not train Text Encoder for fine tuning of the entire model, but option to train Text Encoder is available.
-- Ability to make learning even more flexible than with DreamBooth by preparing a certain number of images (several hundred or more seems to be desirable).
-
-## Original post for each dedicated script:
-- [gen_img_diffusers](https://note.com/kohya_ss/n/n2693183a798e)
-- [merge_vae](https://note.com/kohya_ss/n/nf5893a2e719c)
-- [convert_diffusers20_original_sd](https://note.com/kohya_ss/n/n374f316fe4ad)
-- [detect_face_rotate](https://note.com/kohya_ss/n/nad3bce9a3622)
-- [diffusers_fine_tuning](https://note.com/kohya_ss/n/nbf7ce8d80f29)
-- [train_db_fixed](https://note.com/kohya_ss/n/nee3ed1649fb6)
-- [merge_block_weighted](https://note.com/kohya_ss/n/n9a485a066d5b)
-
-## Change Logs:
-
-#### 2023
 ##### v13 (25/02):
 __What Changes?__
 - Of course refactoring, cleaning and make the code and cells more readable and easy to maintain.
