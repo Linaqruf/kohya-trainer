@@ -17,7 +17,7 @@ Github Repository for [kohya-ss/sd-scripts](https://github.com/kohya-ss/sd-scrip
 __What Changes?__
 - Reformat `1.1. Install Dependencies` cell for all notebooks, added main()
 - Downgrade xformers to `0.0.16` and triton to `2.0.0`, because `0.0.17` is now automatically installing `torch 2.0.0` which is incompatible for Colab Notebook, for now. At least no more installing `pre-release` package.
-- Fix `libunwind8-dev` not found by installing latest version using `!apt install libunwind8-dev -qq
+- Fix `libunwind8-dev` not found by installing latest version using `!apt install libunwind8-dev -qq`
 - Added condition if `T4` in `!nvidia-smi` output, then do a lowram patch by `sed -i "s@cpu@cuda@" library/model_util.py`
 - Added function to `remove_bitsandbytes_message` by manually editing main.py, and then set `os.environ["BITSANDBYTES_NOWELCOME"] = "1"`
   - `BITSANDBYTES_NOWELCOME` is unavailable in `bitsandbytes==0.35.0` and we don't have a plan to update bitsandbytes version
