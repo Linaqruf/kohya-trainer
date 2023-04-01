@@ -13,6 +13,17 @@ Github Repository for [kohya-ss/sd-scripts](https://github.com/kohya-ss/sd-scrip
 
 ## Updates
 #### 2023
+##### v14.6.1 (25/03):
+__What Changes?__
+- Reformat `1.1. Install Dependencies` cell for all notebooks, added main()
+- Downgrade xformers to `0.0.16` and triton to `2.0.0`, because `0.0.17` is now automatically installing `torch 2.0.0` which is incompatible for Colab Notebook, for now. At least no more installing `pre-release` package.
+- Fix `libunwind8-dev` not found by installing latest version using `!apt install libunwind8-dev -qq`
+- Added condition if `T4` in `!nvidia-smi` output, then do a lowram patch by `sed -i "s@cpu@cuda@" library/model_util.py`
+- Added function to `remove_bitsandbytes_message` by manually editing main.py, and then set `os.environ["BITSANDBYTES_NOWELCOME"] = "1"`
+  - `BITSANDBYTES_NOWELCOME` is unavailable in `bitsandbytes==0.35.0` and we don't have a plan to update bitsandbytes version
+- Deactivate tensorflow print standard error, by `os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"`, credit: [TheLastBen/fast-stable-diffusion](https://github.com/TheLastBen/fast-stable-diffusion)
+- Set `LD_LIBRARY_PATH` WITH `os.environ["LD_LIBRARY_PATH"] = "/usr/local/cuda/lib64/:$LD_LIBRARY_PATH"`
+
 ##### v14.6 (21/03):
 __What Changes?__
 - Reformat 4 main notebook with [black python formatter](https://github.com/psf/black).
@@ -55,7 +66,7 @@ __What Changes?__
   - User can choose which `network_category` to train, option: `["LoRA", "LoCon", "LoCon_Lycoris", "LoHa"]`
     - `LoRA` is normal LoRA, only trained cross-attention/transformer layer
     - `LoCon` is LoRA for Convolutional Network but using `networks.lora` as default `network_module`, doesn't support `dropout`
-    - `LoCon_Lycoris` is LoRA for Convolutional Network but uisng `lycoris.kohya` as default `network_module`, good for training style, bad for training object
+    - `LoCon_Lycoris` is LoRA for Convolutional Network but using `lycoris.kohya` as default `network_module`
       - Why? current state of LoCon trained with lycoris==0.1.3 can't be loaded in Additional Network extension in Web UI, because:
         1. AddNet extension doesn't support `cp_decomposition`
         2. LyCORIS developer is temporarily removing hook support for AddNet extension to prevent code conflict
