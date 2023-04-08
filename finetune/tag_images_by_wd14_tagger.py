@@ -10,7 +10,7 @@ import numpy as np
 from tensorflow.keras.models import load_model
 from huggingface_hub import hf_hub_download
 import torch
-import pathlib
+from pathlib import Path
 
 import library.train_util as train_util
 
@@ -103,7 +103,7 @@ def main(args):
 
     # 画像を読み込む
     
-    train_data_dir = pathlib.Path(args.train_data_dir)
+    train_data_dir = Path(args.train_data_dir)
     image_paths = train_util.glob_images_pathlib(train_data_dir, args.recursive)
     print(f"found {len(image_paths)} images.")
 

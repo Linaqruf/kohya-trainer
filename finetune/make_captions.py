@@ -4,6 +4,7 @@ import os
 import json
 import random
 
+from pathlib import Path
 from PIL import Image
 from tqdm import tqdm
 import numpy as np
@@ -72,7 +73,8 @@ def main(args):
     os.chdir('finetune')
 
   print(f"load images from {args.train_data_dir}")
-  image_paths = train_util.glob_images(args.train_data_dir)
+  train_data_dir = Path(args.train_data_dir)
+  image_paths = train_util.glob_images_pathlib(train_data_dir, args.recursive)
   print(f"found {len(image_paths)} images.")
 
   print(f"loading BLIP caption: {args.caption_weights}")
@@ -135,7 +137,7 @@ def main(args):
 
 def setup_parser() -> argparse.ArgumentParser:
   parser = argparse.ArgumentParser()
-  parser.add_argument("train_data_dir", type=str, help="directory for train images / 学習画像データのディレクトリ")
+  parser.add_argument("--train_data_dir", type=str, help="directory for train images / 学習画像データのディレクトリ")
   parser.add_argument("--caption_weights", type=str, default="https://storage.googleapis.com/sfr-vision-language-research/BLIP/models/model_large_caption.pth",
                       help="BLIP caption weights (model_large_caption.pth) / BLIP captionの重みファイル(model_large_caption.pth)")
   parser.add_argument("--caption_extention", type=str, default=None,
