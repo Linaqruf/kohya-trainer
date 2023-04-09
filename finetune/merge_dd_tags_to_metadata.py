@@ -49,8 +49,8 @@ def main(args):
 
 def setup_parser() -> argparse.ArgumentParser:
   parser = argparse.ArgumentParser()
-  parser.add_argument("train_data_dir", type=str, help="directory for train images / 学習画像データのディレクトリ")
-  parser.add_argument("out_json", type=str, help="metadata file to output / メタデータファイル書き出し先")
+  parser.add_argument("--train_data_dir", type=str, help="directory for train images / 学習画像データのディレクトリ")
+  parser.add_argument("--out_json", type=str, help="metadata file to output / メタデータファイル書き出し先")
   parser.add_argument("--in_json", type=str,
                       help="metadata file to input (if omitted and out_json exists, existing out_json is read) / 読み込むメタデータファイル（省略時、out_jsonが存在すればそれを読み込む）")
   parser.add_argument("--full_path", action="store_true",

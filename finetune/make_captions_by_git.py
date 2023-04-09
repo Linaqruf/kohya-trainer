@@ -131,7 +131,7 @@ def main(args):
 
 def setup_parser() -> argparse.ArgumentParser:
   parser = argparse.ArgumentParser()
-  parser.add_argument("train_data_dir", type=str, help="directory for train images / 学習画像データのディレクトリ")
+  parser.add_argument("--train_data_dir", type=str, help="directory for train images / 学習画像データのディレクトリ")
   parser.add_argument("--caption_extension", type=str, default=".caption", help="extension of caption file / 出力されるキャプションファイルの拡張子")
   parser.add_argument("--model_id", type=str, default="microsoft/git-large-textcaps",
                       help="model id for GIT in Hugging Face / 使用するGITのHugging FaceのモデルID")

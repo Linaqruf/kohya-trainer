@@ -166,8 +166,8 @@ def main(args):
 def setup_parser() -> argparse.ArgumentParser:
   parser = argparse.ArgumentParser()
   # parser.add_argument("train_data_dir", type=str, help="directory for train images / 学習画像データのディレクトリ")
-  parser.add_argument("in_json", type=str, help="metadata file to input / 読み込むメタデータファイル")
-  parser.add_argument("out_json", type=str, help="metadata file to output / メタデータファイル書き出し先")
+  parser.add_argument("--in_json", type=str, help="metadata file to input / 読み込むメタデータファイル")
+  parser.add_argument("--out_json", type=str, help="metadata file to output / メタデータファイル書き出し先")
   parser.add_argument("--debug", action="store_true", help="debug mode")
 
   return parser
