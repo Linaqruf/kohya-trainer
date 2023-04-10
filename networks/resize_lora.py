@@ -11,6 +11,8 @@ import numpy as np
 
 MIN_SV = 1e-6
 
+# Model save and load functions
+
 def load_state_dict(file_name, dtype):
   if model_util.is_safetensors(file_name):
     sd = load_file(file_name)
@@ -39,12 +41,13 @@ def save_to_file(file_name, model, state_dict, dtype, metadata):
     torch.save(model, file_name)
 
 
+# Indexing functions
+
 def index_sv_cumulative(S, target):
   original_sum = float(torch.sum(S))
   cumulative_sums = torch.cumsum(S, dim=0)/original_sum
   index = int(torch.searchsorted(cumulative_sums, target)) + 1
-  if index >= len(S):
-    index = len(S) - 1
+  index = max(1, min(index, len(S)-1))
 
   return index
 
@@ -54,8 +57,16 @@ def index_sv_fro(S, target):
   s_fro_sq = float(torch.sum(S_squared))
   sum_S_squared = torch.cumsum(S_squared, dim=0)/s_fro_sq
   index = int(torch.searchsorted(sum_S_squared, target**2)) + 1
-  if index >= len(S):
-    index = len(S) - 1
+  index = max(1, min(index, len(S)-1))
+
+  return index
+
+
+def index_sv_ratio(S, target):
+  max_sv = S[0]
+  min_sv = max_sv/target
+  index = int(torch.sum(S > min_sv).item())
+  index = max(1, min(index, len(S)-1))
 
   return index
 
@@ -125,26 +136,24 @@ def merge_linear(lora_down, lora_up, device):
     return weight
   
 
+# Calculate new rank
+
 def rank_resize(S, rank, dynamic_method, dynamic_param, scale=1):
     param_dict = {}
 
     if dynamic_method=="sv_ratio":
         # Calculate new dim and alpha based off ratio
-        max_sv = S[0]
-        min_sv = max_sv/dynamic_param
-        new_rank = max(torch.sum(S > min_sv).item(),1)
+        new_rank = index_sv_ratio(S, dynamic_param) + 1
         new_alpha = float(scale*new_rank)
 
     elif dynamic_method=="sv_cumulative":
         # Calculate new dim and alpha based off cumulative sum
-        new_rank = index_sv_cumulative(S, dynamic_param)
-        new_rank = max(new_rank, 1)
+        new_rank = index_sv_cumulative(S, dynamic_param) + 1
         new_alpha = float(scale*new_rank)
 
     elif dynamic_method=="sv_fro":
         # Calculate new dim and alpha based off sqrt sum of squares
-        new_rank = index_sv_fro(S, dynamic_param)
-        new_rank = min(max(new_rank, 1), len(S)-1)
+        new_rank = index_sv_fro(S, dynamic_param) + 1
         new_alpha = float(scale*new_rank)
     else:
         new_rank = rank
@@ -172,7 +181,7 @@ def rank_resize(S, rank, dynamic_method, dynamic_param, scale=1):
     param_dict["new_alpha"] = new_alpha
     param_dict["sum_retained"] = (s_rank)/s_sum
     param_dict["fro_retained"] = fro_percent
-    param_dict["max_ratio"] = S[0]/S[new_rank]
+    param_dict["max_ratio"] = S[0]/S[new_rank - 1]
 
     return param_dict
 
@@ -208,18 +217,28 @@ def resize_lora_model(lora_sd, new_rank, save_dtype, device, dynamic_method, dyn
 
   with torch.no_grad():
     for key, value in tqdm(lora_sd.items()):
+      weight_name = None
       if 'lora_down' in key:
         block_down_name = key.split(".")[0]
+        weight_name = key.split(".")[-1]
         lora_down_weight = value
-      if 'lora_up' in key:
-        block_up_name = key.split(".")[0]
-        lora_up_weight = value
+      else:
+        continue
+
+      # find corresponding lora_up and alpha
+      block_up_name = block_down_name
+      lora_up_weight = lora_sd.get(block_up_name + '.lora_up.' + weight_name, None)
+      lora_alpha = lora_sd.get(block_down_name + '.alpha', None)
 
       weights_loaded = (lora_down_weight is not None and lora_up_weight is not None)
 
-      if (block_down_name == block_up_name) and weights_loaded:
+      if weights_loaded:
 
         conv2d = (len(lora_down_weight.size()) == 4)
+        if lora_alpha is None:
+          scale = 1.0
+        else:
+          scale = lora_alpha/lora_down_weight.size()[0]
 
         if conv2d:
           full_weight_matrix = merge_conv(lora_down_weight, lora_up_weight, device)
@@ -311,7 +330,7 @@ def resize(args):
   save_to_file(args.save_to, state_dict, state_dict, save_dtype, metadata)
 
 
-if __name__ == '__main__':
+def setup_parser() -> argparse.ArgumentParser:
   parser = argparse.ArgumentParser()
 
   parser.add_argument("--save_precision", type=str, default=None,
@@ -329,7 +348,12 @@ if __name__ == '__main__':
                       help="Specify dynamic resizing method, --new_rank is used as a hard limit for max rank")
   parser.add_argument("--dynamic_param", type=float, default=None,
                       help="Specify target for dynamic reduction")
-                                           
+       
+  return parser
+
+
+if __name__ == '__main__':
+  parser = setup_parser()
 
   args = parser.parse_args()
   resize(args)

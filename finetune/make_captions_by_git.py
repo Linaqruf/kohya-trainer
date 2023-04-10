@@ -2,6 +2,7 @@ import argparse
 import os
 import re
 
+from pathlib import Path
 from PIL import Image
 from tqdm import tqdm
 import torch
@@ -65,7 +66,8 @@ def main(args):
   GenerationMixin._prepare_input_ids_for_generation = _prepare_input_ids_for_generation_patch
 
   print(f"load images from {args.train_data_dir}")
-  image_paths = train_util.glob_images(args.train_data_dir)
+  train_data_dir = Path(args.train_data_dir)
+  image_paths = train_util.glob_images_pathlib(train_data_dir, args.recursive)
   print(f"found {len(image_paths)} images.")
 
   # できればcacheに依存せず明示的にダウンロードしたい
@@ -127,7 +129,7 @@ def main(args):
   print("done!")
 
 
-if __name__ == '__main__':
+def setup_parser() -> argparse.ArgumentParser:
   parser = argparse.ArgumentParser()
   parser.add_argument("train_data_dir", type=str, help="directory for train images / 学習画像データのディレクトリ")
   parser.add_argument("--caption_extension", type=str, default=".caption", help="extension of caption file / 出力されるキャプションファイルの拡張子")
@@ -140,6 +142,13 @@ if __name__ == '__main__':
   parser.add_argument("--remove_words", action="store_true",
                       help="remove like `with the words xxx` from caption / `with the words xxx`のような部分をキャプションから削除する")
   parser.add_argument("--debug", action="store_true", help="debug mode")
+  parser.add_argument("--recursive", action="store_true", help="search for images in subfolders recursively")  
+  
+  return parser
+
+
+if __name__ == '__main__':
+  parser = setup_parser()
 
   args = parser.parse_args()
   main(args)

@@ -4,6 +4,7 @@ import os
 import json
 import random
 
+from pathlib import Path
 from PIL import Image
 from tqdm import tqdm
 import numpy as np
@@ -72,7 +73,8 @@ def main(args):
     os.chdir('finetune')
 
   print(f"load images from {args.train_data_dir}")
-  image_paths = train_util.glob_images(args.train_data_dir)
+  train_data_dir = Path(args.train_data_dir)
+  image_paths = train_util.glob_images_pathlib(train_data_dir, args.recursive)
   print(f"found {len(image_paths)} images.")
 
   print(f"loading BLIP caption: {args.caption_weights}")
@@ -133,7 +135,7 @@ def main(args):
   print("done!")
 
 
-if __name__ == '__main__':
+def setup_parser() -> argparse.ArgumentParser:
   parser = argparse.ArgumentParser()
   parser.add_argument("train_data_dir", type=str, help="directory for train images / 学習画像データのディレクトリ")
   parser.add_argument("--caption_weights", type=str, default="https://storage.googleapis.com/sfr-vision-language-research/BLIP/models/model_large_caption.pth",
@@ -152,6 +154,13 @@ if __name__ == '__main__':
   parser.add_argument("--min_length", type=int, default=5, help="min length of caption / captionの最小長")
   parser.add_argument('--seed', default=42, type=int, help='seed for reproducibility / 再現性を確保するための乱数seed')
   parser.add_argument("--debug", action="store_true", help="debug mode")
+  parser.add_argument("--recursive", action="store_true", help="search for images in subfolders recursively")  
+  
+  return parser
+
+
+if __name__ == '__main__':
+  parser = setup_parser()
 
   args = parser.parse_args()
 

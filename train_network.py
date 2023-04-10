@@ -8,6 +8,7 @@ import random
 import time
 import json
 import toml
+from multiprocessing import Value
 
 from tqdm import tqdm
 import torch
@@ -23,26 +24,40 @@ from library.config_util import (
     ConfigSanitizer,
     BlueprintGenerator,
 )
-
-
-def collate_fn(examples):
-    return examples[0]
+import library.huggingface_util as huggingface_util
+import library.custom_train_functions as custom_train_functions
+from library.custom_train_functions import apply_snr_weight
 
 
 # TODO 他のスクリプトと共通化する
 def generate_step_logs(args: argparse.Namespace, current_loss, avr_loss, lr_scheduler):
     logs = {"loss/current": current_loss, "loss/average": avr_loss}
 
-    if args.network_train_unet_only:
-        logs["lr/unet"] = float(lr_scheduler.get_last_lr()[0])
-    elif args.network_train_text_encoder_only:
-        logs["lr/textencoder"] = float(lr_scheduler.get_last_lr()[0])
-    else:
-        logs["lr/textencoder"] = float(lr_scheduler.get_last_lr()[0])
-        logs["lr/unet"] = float(lr_scheduler.get_last_lr()[-1])  # may be same to textencoder
+    lrs = lr_scheduler.get_last_lr()
 
-    if args.optimizer_type.lower() == "DAdaptation".lower():  # tracking d*lr value of unet.
-        logs["lr/d*lr"] = lr_scheduler.optimizers[-1].param_groups[0]["d"] * lr_scheduler.optimizers[-1].param_groups[0]["lr"]
+    if args.network_train_text_encoder_only or len(lrs) <= 2:  # not block lr (or single block)
+        if args.network_train_unet_only:
+            logs["lr/unet"] = float(lrs[0])
+        elif args.network_train_text_encoder_only:
+            logs["lr/textencoder"] = float(lrs[0])
+        else:
+            logs["lr/textencoder"] = float(lrs[0])
+            logs["lr/unet"] = float(lrs[-1])  # may be same to textencoder
+
+        if args.optimizer_type.lower() == "DAdaptation".lower():  # tracking d*lr value of unet.
+            logs["lr/d*lr"] = lr_scheduler.optimizers[-1].param_groups[0]["d"] * lr_scheduler.optimizers[-1].param_groups[0]["lr"]
+    else:
+        idx = 0
+        if not args.network_train_unet_only:
+            logs["lr/textencoder"] = float(lrs[0])
+            idx = 1
+
+        for i in range(idx, len(lrs)):
+            logs[f"lr/group{i}"] = float(lrs[i])
+            if args.optimizer_type.lower() == "DAdaptation".lower():
+                logs[f"lr/d*lr/group{i}"] = (
+                    lr_scheduler.optimizers[-1].param_groups[i]["d"] * lr_scheduler.optimizers[-1].param_groups[i]["lr"]
+                )
 
     return logs
 
@@ -57,8 +72,9 @@ def train(args):
     use_dreambooth_method = args.in_json is None
     use_user_config = args.dataset_config is not None
 
-    if args.seed is not None:
-        set_seed(args.seed)
+    if args.seed is None:
+        args.seed = random.randint(0, 2**32)
+    set_seed(args.seed)
 
     tokenizer = train_util.load_tokenizer(args)
 
@@ -100,6 +116,11 @@ def train(args):
     blueprint = blueprint_generator.generate(user_config, args, tokenizer=tokenizer)
     train_dataset_group = config_util.generate_dataset_group_by_blueprint(blueprint.dataset_group)
 
+    current_epoch = Value("i", 0)
+    current_step = Value("i", 0)
+    ds_for_collater = train_dataset_group if args.max_data_loader_n_workers == 0 else None
+    collater = train_util.collater_class(current_epoch, current_step, ds_for_collater)
+
     if args.debug_dataset:
         train_util.debug_dataset(train_dataset_group)
         return
@@ -123,12 +144,24 @@ def train(args):
     weight_dtype, save_dtype = train_util.prepare_dtype(args)
 
     # モデルを読み込む
-    text_encoder, vae, unet, _ = train_util.load_target_model(args, weight_dtype)
+    for pi in range(accelerator.state.num_processes):
+        # TODO: modify other training scripts as well
+        if pi == accelerator.state.local_process_index:
+            print(f"loading model for process {accelerator.state.local_process_index}/{accelerator.state.num_processes}")
 
-    # work on low-ram device
-    if args.lowram:
-        text_encoder.to("cuda")
-        unet.to("cuda")
+            text_encoder, vae, unet, _ = train_util.load_target_model(
+                args, weight_dtype, accelerator.device if args.lowram else "cpu"
+            )
+
+            # work on low-ram device
+            if args.lowram:
+                text_encoder.to(accelerator.device)
+                unet.to(accelerator.device)
+                vae.to(accelerator.device)
+
+            gc.collect()
+            torch.cuda.empty_cache()
+        accelerator.wait_for_everyone()
 
     # モデルに xformers とか memory efficient attention を組み込む
     train_util.replace_unet_modules(unet, args.mem_eff_attn, args.xformers)
@@ -139,7 +172,7 @@ def train(args):
         vae.requires_grad_(False)
         vae.eval()
         with torch.no_grad():
-            train_dataset_group.cache_latents(vae)
+            train_dataset_group.cache_latents(vae, args.vae_batch_size)
         vae.to("cpu")
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -162,14 +195,17 @@ def train(args):
     network = network_module.create_network(1.0, args.network_dim, args.network_alpha, vae, text_encoder, unet, **net_kwargs)
     if network is None:
         return
-
-    if args.network_weights is not None:
-        print("load network weights from:", args.network_weights)
-        network.load_weights(args.network_weights)
+    
+    if hasattr(network, "prepare_network"):
+        network.prepare_network(args)
 
     train_unet = not args.network_train_text_encoder_only
     train_text_encoder = not args.network_train_unet_only
     network.apply_to(text_encoder, unet, train_text_encoder, train_unet)
+
+    if args.network_weights is not None:
+        info = network.load_weights(args.network_weights)
+        print(f"load network weights from {args.network_weights}: {info}")
 
     if args.gradient_checkpointing:
         unet.enable_gradient_checkpointing()
@@ -179,26 +215,38 @@ def train(args):
     # 学習に必要なクラスを準備する
     print("prepare optimizer, data loader etc.")
 
-    trainable_params = network.prepare_optimizer_params(args.text_encoder_lr, args.unet_lr)
+    # 後方互換性を確保するよ
+    try:
+        trainable_params = network.prepare_optimizer_params(args.text_encoder_lr, args.unet_lr, args.learning_rate)
+    except TypeError:
+        print("Deprecated: use prepare_optimizer_params(text_encoder_lr, unet_lr, learning_rate) instead of prepare_optimizer_params(text_encoder_lr, unet_lr)")
+        trainable_params = network.prepare_optimizer_params(args.text_encoder_lr, args.unet_lr)
+
     optimizer_name, optimizer_args, optimizer = train_util.get_optimizer(args, trainable_params)
 
     # dataloaderを準備する
     # DataLoaderのプロセス数：0はメインプロセスになる
     n_workers = min(args.max_data_loader_n_workers, os.cpu_count() - 1)  # cpu_count-1 ただし最大で指定された数まで
+
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset_group,
         batch_size=1,
         shuffle=True,
-        collate_fn=collate_fn,
+        collate_fn=collater,
         num_workers=n_workers,
         persistent_workers=args.persistent_data_loader_workers,
     )
 
     # 学習ステップ数を計算する
     if args.max_train_epochs is not None:
-        args.max_train_steps = args.max_train_epochs * math.ceil(len(train_dataloader) / accelerator.num_processes)
+        args.max_train_steps = args.max_train_epochs * math.ceil(
+            len(train_dataloader) / accelerator.num_processes / args.gradient_accumulation_steps
+        )
         if is_main_process:
             print(f"override steps. steps for {args.max_train_epochs} epochs is / 指定エポックまでのステップ数: {args.max_train_steps}")
+
+    # データセット側にも学習ステップを送信
+    train_dataset_group.set_max_train_steps(args.max_train_steps)
 
     # lr schedulerを用意する
     lr_scheduler = train_util.get_scheduler_fix(args, optimizer, accelerator.num_processes)
@@ -262,9 +310,7 @@ def train(args):
         train_util.patch_accelerator_for_fp16_training(accelerator)
 
     # resumeする
-    if args.resume is not None:
-        print(f"resume training from state: {args.resume}")
-        accelerator.load_state(args.resume)
+    train_util.resume_from_local_or_hf_if_specified(accelerator, args)
 
     # epoch数を計算する
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
@@ -325,6 +371,7 @@ def train(args):
         "ss_caption_tag_dropout_rate": args.caption_tag_dropout_rate,
         "ss_face_crop_aug_range": args.face_crop_aug_range,
         "ss_prior_loss_weight": args.prior_loss_weight,
+        "ss_min_snr_gamma": args.min_snr_gamma,
     }
 
     if use_user_config:
@@ -453,8 +500,6 @@ def train(args):
     # add extra args
     if args.network_args:
         metadata["ss_network_args"] = json.dumps(net_kwargs)
-        # for key, value in net_kwargs.items():
-        #   metadata["ss_arg_" + key] = value
 
     # model name and hash
     if args.pretrained_model_name_or_path is not None:
@@ -488,22 +533,23 @@ def train(args):
     noise_scheduler = DDPMScheduler(
         beta_start=0.00085, beta_end=0.012, beta_schedule="scaled_linear", num_train_timesteps=1000, clip_sample=False
     )
-
     if accelerator.is_main_process:
         accelerator.init_trackers("network_train")
 
     loss_list = []
     loss_total = 0.0
+    del train_dataset_group
     for epoch in range(num_train_epochs):
         if is_main_process:
             print(f"epoch {epoch+1}/{num_train_epochs}")
-        train_dataset_group.set_current_epoch(epoch + 1)
+        current_epoch.value = epoch + 1
 
         metadata["ss_epoch"] = str(epoch + 1)
 
         network.on_epoch_start(text_encoder, unet)
 
         for step, batch in enumerate(train_dataloader):
+            current_step.value = global_step
             with accelerator.accumulate(network):
                 with torch.no_grad():
                     if "latents" in batch and batch["latents"] is not None:
@@ -528,7 +574,6 @@ def train(args):
                 # Sample a random timestep for each image
                 timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (b_size,), device=latents.device)
                 timesteps = timesteps.long()
-
                 # Add noise to the latents according to the noise magnitude at each timestep
                 # (this is the forward diffusion process)
                 noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
@@ -548,6 +593,9 @@ def train(args):
 
                 loss_weights = batch["loss_weights"]  # 各sampleごとのweight
                 loss = loss * loss_weights
+
+                if args.min_snr_gamma:
+                    loss = apply_snr_weight(loss, timesteps, noise_scheduler, args.min_snr_gamma)
 
                 loss = loss.mean()  # 平均なのでbatch_sizeで割る必要なし
 
@@ -602,6 +650,8 @@ def train(args):
                 metadata["ss_training_finished_at"] = str(time.time())
                 print(f"saving checkpoint: {ckpt_file}")
                 unwrap_model(network).save_weights(ckpt_file, save_dtype, minimum_metadata if args.no_metadata else metadata)
+                if args.huggingface_repo_id is not None:
+                    huggingface_util.upload(args, ckpt_file, "/" + ckpt_name)
 
             def remove_old_func(old_epoch_no):
                 old_ckpt_name = train_util.EPOCH_FILE_NAME.format(model_name, old_epoch_no) + "." + args.save_model_as
@@ -641,10 +691,12 @@ def train(args):
 
         print(f"save trained model to {ckpt_file}")
         network.save_weights(ckpt_file, save_dtype, minimum_metadata if args.no_metadata else metadata)
+        if args.huggingface_repo_id is not None:
+            huggingface_util.upload(args, ckpt_file, "/" + ckpt_name, force_sync_upload=True)
         print("model saved.")
 
 
-if __name__ == "__main__":
+def setup_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
 
     train_util.add_sd_models_arguments(parser)
@@ -652,6 +704,7 @@ if __name__ == "__main__":
     train_util.add_training_arguments(parser, True)
     train_util.add_optimizer_arguments(parser)
     config_util.add_config_arguments(parser)
+    custom_train_functions.add_custom_train_arguments(parser)
 
     parser.add_argument("--no_metadata", action="store_true", help="do not save metadata in output model / メタデータを出力先モデルに保存しない")
     parser.add_argument(
@@ -686,6 +739,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--training_comment", type=str, default=None, help="arbitrary comment string stored in metadata / メタデータに記録する任意のコメント文字列"
     )
+
+    return parser
+
+
+if __name__ == "__main__":
+    parser = setup_parser()
 
     args = parser.parse_args()
     args = train_util.read_config_from_file(args, parser)

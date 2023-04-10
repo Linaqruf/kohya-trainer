@@ -145,8 +145,8 @@ def svd(args):
     lora_sd[lora_name + '.alpha'] = torch.tensor(down_weight.size()[0])
 
   # load state dict to LoRA and save it
-  lora_network_save = lora.create_network_from_weights(1.0, None, None, text_encoder_o, unet_o, weights_sd=lora_sd)
-  lora_network_save.apply_to(text_encoder_o, unet_o)        # create internal module references for state_dict
+  lora_network_save, lora_sd = lora.create_network_from_weights(1.0, None, None, text_encoder_o, unet_o, weights_sd=lora_sd)
+  lora_network_save.apply_to(text_encoder_o, unet_o)  # create internal module references for state_dict  
 
   info = lora_network_save.load_state_dict(lora_sd)
   print(f"Loading extracted LoRA weights: {info}")
@@ -162,7 +162,7 @@ def svd(args):
   print(f"LoRA weights are saved to: {args.save_to}")
 
 
-if __name__ == '__main__':
+def setup_parser() -> argparse.ArgumentParser:
   parser = argparse.ArgumentParser()
   parser.add_argument("--v2", action='store_true',
                       help='load Stable Diffusion v2.x model / Stable Diffusion 2.xのモデルを読み込む')
@@ -178,6 +178,12 @@ if __name__ == '__main__':
   parser.add_argument("--conv_dim", type=int, default=None,
                       help="dimension (rank) of LoRA for Conv2d-3x3 (default None, disabled) / LoRAのConv2d-3x3の次元数（rank）（デフォルトNone、適用なし）")
   parser.add_argument("--device", type=str, default=None, help="device to use, cuda for GPU / 計算を行うデバイス、cuda でGPUを使う")
+
+  return parser
+
+
+if __name__ == '__main__':
+  parser = setup_parser()
 
   args = parser.parse_args()
   svd(args)

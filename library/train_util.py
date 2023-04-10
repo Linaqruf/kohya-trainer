@@ -2,6 +2,7 @@
 
 import argparse
 import ast
+import asyncio
 import importlib
 import json
 import pathlib
@@ -49,6 +50,7 @@ from diffusers import (
     KDPM2DiscreteScheduler,
     KDPM2AncestralDiscreteScheduler,
 )
+from huggingface_hub import hf_hub_download
 import albumentations as albu
 import numpy as np
 from PIL import Image
@@ -58,6 +60,7 @@ from torch import einsum
 import safetensors.torch
 from library.lpw_stable_diffusion import StableDiffusionLongPromptWeightingPipeline
 import library.model_util as model_util
+import library.huggingface_util as huggingface_util
 
 # Tokenizer: checkpointから読み込むのではなくあらかじめ提供されているものを使う
 TOKENIZER_PATH = "openai/clip-vit-large-patch14"
@@ -73,8 +76,7 @@ DEFAULT_LAST_OUTPUT_NAME = "last"
 
 # region dataset
 
-IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".bmp"]
-# , ".PNG", ".JPG", ".JPEG", ".WEBP", ".BMP"]         # Linux?
+IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".PNG", ".JPG", ".JPEG", ".WEBP", ".BMP"]
 
 
 class ImageInfo:
@@ -277,6 +279,8 @@ class BaseSubset:
         caption_dropout_rate: float,
         caption_dropout_every_n_epochs: int,
         caption_tag_dropout_rate: float,
+        token_warmup_min: int,
+        token_warmup_step: Union[float, int],
     ) -> None:
         self.image_dir = image_dir
         self.num_repeats = num_repeats
@@ -289,6 +293,9 @@ class BaseSubset:
         self.caption_dropout_rate = caption_dropout_rate
         self.caption_dropout_every_n_epochs = caption_dropout_every_n_epochs
         self.caption_tag_dropout_rate = caption_tag_dropout_rate
+
+        self.token_warmup_min = token_warmup_min  # step=0におけるタグの数
+        self.token_warmup_step = token_warmup_step  # N（N<1ならN*max_train_steps）ステップ目でタグの数が最大になる
 
         self.img_count = 0
 
@@ -310,6 +317,8 @@ class DreamBoothSubset(BaseSubset):
         caption_dropout_rate,
         caption_dropout_every_n_epochs,
         caption_tag_dropout_rate,
+        token_warmup_min,
+        token_warmup_step,
     ) -> None:
         assert image_dir is not None, "image_dir must be specified / image_dirは指定が必須です"
 
@@ -325,6 +334,8 @@ class DreamBoothSubset(BaseSubset):
             caption_dropout_rate,
             caption_dropout_every_n_epochs,
             caption_tag_dropout_rate,
+            token_warmup_min,
+            token_warmup_step,
         )
 
         self.is_reg = is_reg
@@ -352,6 +363,8 @@ class FineTuningSubset(BaseSubset):
         caption_dropout_rate,
         caption_dropout_every_n_epochs,
         caption_tag_dropout_rate,
+        token_warmup_min,
+        token_warmup_step,
     ) -> None:
         assert metadata_file is not None, "metadata_file must be specified / metadata_fileは指定が必須です"
 
@@ -367,6 +380,8 @@ class FineTuningSubset(BaseSubset):
             caption_dropout_rate,
             caption_dropout_every_n_epochs,
             caption_tag_dropout_rate,
+            token_warmup_min,
+            token_warmup_step,
         )
 
         self.metadata_file = metadata_file
@@ -392,6 +407,8 @@ class BaseDataset(torch.utils.data.Dataset):
 
         self.token_padding_disabled = False
         self.tag_frequency = {}
+        self.XTI_layers = None
+        self.token_strings = None
 
         self.enable_bucket = False
         self.bucket_manager: BucketManager = None  # not initialized
@@ -404,6 +421,10 @@ class BaseDataset(torch.utils.data.Dataset):
         self.tokenizer_max_length = self.tokenizer.model_max_length if max_token_length is None else max_token_length + 2
 
         self.current_epoch: int = 0  # インスタンスがepochごとに新しく作られるようなので外側から渡さないとダメ
+
+        self.current_step: int = 0
+        self.max_train_steps: int = 0
+        self.seed: int = 0
 
         # augmentation
         self.aug_helper = AugHelper()
@@ -420,9 +441,19 @@ class BaseDataset(torch.utils.data.Dataset):
 
         self.replacements = {}
 
+    def set_seed(self, seed):
+        self.seed = seed
+
     def set_current_epoch(self, epoch):
+        if not self.current_epoch == epoch:  # epochが切り替わったらバケツをシャッフルする
+            self.shuffle_buckets()
         self.current_epoch = epoch
-        self.shuffle_buckets()
+
+    def set_current_step(self, step):
+        self.current_step = step
+
+    def set_max_train_steps(self, max_train_steps):
+        self.max_train_steps = max_train_steps
 
     def set_tag_frequency(self, dir_name, captions):
         frequency_for_dir = self.tag_frequency.get(dir_name, {})
@@ -437,6 +468,10 @@ class BaseDataset(torch.utils.data.Dataset):
 
     def disable_token_padding(self):
         self.token_padding_disabled = True
+
+    def enable_XTI(self, layers=None, token_strings=None):
+        self.XTI_layers = layers
+        self.token_strings = token_strings
 
     def add_replacement(self, str_from, str_to):
         self.replacements[str_from] = str_to
@@ -453,7 +488,16 @@ class BaseDataset(torch.utils.data.Dataset):
         if is_drop_out:
             caption = ""
         else:
-            if subset.shuffle_caption or subset.caption_tag_dropout_rate > 0:
+            if subset.shuffle_caption or subset.token_warmup_step > 0 or subset.caption_tag_dropout_rate > 0:
+                tokens = [t.strip() for t in caption.strip().split(",")]
+                if subset.token_warmup_step < 1:  # 初回に上書きする
+                    subset.token_warmup_step = math.floor(subset.token_warmup_step * self.max_train_steps)
+                if subset.token_warmup_step and self.current_step < subset.token_warmup_step:
+                    tokens_len = (
+                        math.floor((self.current_step) * ((len(tokens) - subset.token_warmup_min) / (subset.token_warmup_step)))
+                        + subset.token_warmup_min
+                    )
+                    tokens = tokens[:tokens_len]
 
                 def dropout_tags(tokens):
                     if subset.caption_tag_dropout_rate <= 0:
@@ -465,10 +509,10 @@ class BaseDataset(torch.utils.data.Dataset):
                     return l
 
                 fixed_tokens = []
-                flex_tokens = [t.strip() for t in caption.strip().split(",")]
+                flex_tokens = tokens[:]
                 if subset.keep_tokens > 0:
                     fixed_tokens = flex_tokens[: subset.keep_tokens]
-                    flex_tokens = flex_tokens[subset.keep_tokens :]
+                    flex_tokens = tokens[subset.keep_tokens :]
 
                 if subset.shuffle_caption:
                     random.shuffle(flex_tokens)
@@ -638,6 +682,9 @@ class BaseDataset(torch.utils.data.Dataset):
         self._length = len(self.buckets_indices)
 
     def shuffle_buckets(self):
+        # set random seed for this epoch
+        random.seed(self.seed + self.current_epoch)
+
         random.shuffle(self.buckets_indices)
         self.bucket_manager.shuffle()
 
@@ -675,10 +722,19 @@ class BaseDataset(torch.utils.data.Dataset):
     def is_latent_cacheable(self):
         return all([not subset.color_aug and not subset.random_crop for subset in self.subsets])
 
-    def cache_latents(self, vae):
-        # TODO ここを高速化したい
+    def cache_latents(self, vae, vae_batch_size=1):
+        # ちょっと速くした
         print("caching latents.")
-        for info in tqdm(self.image_data.values()):
+
+        image_infos = list(self.image_data.values())
+
+        # sort by resolution
+        image_infos.sort(key=lambda info: info.bucket_reso[0] * info.bucket_reso[1])
+
+        # split by resolution
+        batches = []
+        batch = []
+        for info in image_infos:
             subset = self.image_to_subset[info.image_key]
 
             if info.latents_npz is not None:
@@ -689,18 +745,42 @@ class BaseDataset(torch.utils.data.Dataset):
                     info.latents_flipped = torch.FloatTensor(info.latents_flipped)
                 continue
 
-            image = self.load_image(info.absolute_path)
-            image = self.trim_and_resize_if_required(subset, image, info.bucket_reso, info.resized_size)
+            # if last member of batch has different resolution, flush the batch
+            if len(batch) > 0 and batch[-1].bucket_reso != info.bucket_reso:
+                batches.append(batch)
+                batch = []
 
-            img_tensor = self.image_transforms(image)
-            img_tensor = img_tensor.unsqueeze(0).to(device=vae.device, dtype=vae.dtype)
-            info.latents = vae.encode(img_tensor).latent_dist.sample().squeeze(0).to("cpu")
+            batch.append(info)
+
+            # if number of data in batch is enough, flush the batch
+            if len(batch) >= vae_batch_size:
+                batches.append(batch)
+                batch = []
+
+        if len(batch) > 0:
+            batches.append(batch)
+
+        # iterate batches
+        for batch in tqdm(batches, smoothing=1, total=len(batches)):
+            images = []
+            for info in batch:
+                image = self.load_image(info.absolute_path)
+                image = self.trim_and_resize_if_required(subset, image, info.bucket_reso, info.resized_size)
+                image = self.image_transforms(image)
+                images.append(image)
+
+            img_tensors = torch.stack(images, dim=0)
+            img_tensors = img_tensors.to(device=vae.device, dtype=vae.dtype)
+
+            latents = vae.encode(img_tensors).latent_dist.sample().to("cpu")
+            for info, latent in zip(batch, latents):
+                info.latents = latent
 
             if subset.flip_aug:
-                image = image[:, ::-1].copy()  # cannot convert to Tensor without copy
-                img_tensor = self.image_transforms(image)
-                img_tensor = img_tensor.unsqueeze(0).to(device=vae.device, dtype=vae.dtype)
-                info.latents_flipped = vae.encode(img_tensor).latent_dist.sample().squeeze(0).to("cpu")
+                img_tensors = torch.flip(img_tensors, dims=[3])
+                latents = vae.encode(img_tensors).latent_dist.sample().to("cpu")
+                for info, latent in zip(batch, latents):
+                    info.latents_flipped = latent
 
     def get_image_size(self, image_path):
         image = Image.open(image_path)
@@ -838,9 +918,22 @@ class BaseDataset(torch.utils.data.Dataset):
             latents_list.append(latents)
 
             caption = self.process_caption(subset, image_info.caption)
-            captions.append(caption)
+            if self.XTI_layers:
+                caption_layer = []
+                for layer in self.XTI_layers:
+                    token_strings_from = " ".join(self.token_strings)
+                    token_strings_to = " ".join([f"{x}_{layer}" for x in self.token_strings])
+                    caption_ = caption.replace(token_strings_from, token_strings_to)
+                    caption_layer.append(caption_)
+                captions.append(caption_layer)
+            else:
+                captions.append(caption)
             if not self.token_padding_disabled:  # this option might be omitted in future
-                input_ids_list.append(self.get_input_ids(caption))
+                if self.XTI_layers:
+                    token_caption = self.get_input_ids(caption_layer)
+                else:
+                    token_caption = self.get_input_ids(caption)
+                input_ids_list.append(token_caption)
 
         example = {}
         example["loss_weights"] = torch.FloatTensor(loss_weights)
@@ -1011,7 +1104,7 @@ class DreamBoothDataset(BaseDataset):
                         self.register_image(info, subset)
                         n += info.num_repeats
                     else:
-                        info.num_repeats += 1
+                        info.num_repeats += 1  # rewrite registered info
                         n += 1
                     if n >= num_train_images:
                         break
@@ -1072,6 +1165,8 @@ class FineTuningDataset(BaseDataset):
                 # path情報を作る
                 if os.path.exists(image_key):
                     abs_path = image_key
+                elif os.path.exists(os.path.splitext(image_key)[0] + ".npz"):
+                    abs_path = os.path.splitext(image_key)[0] + ".npz"
                 else:
                     npz_path = os.path.join(subset.image_dir, image_key + ".npz")
                     if os.path.exists(npz_path):
@@ -1197,6 +1292,10 @@ class FineTuningDataset(BaseDataset):
                 npz_file_flip = None
             return npz_file_norm, npz_file_flip
 
+        # if not full path, check image_dir. if image_dir is None, return None
+        if subset.image_dir is None:
+            return None, None
+
         # image_key is relative path
         npz_file_norm = os.path.join(subset.image_dir, image_key + ".npz")
         npz_file_flip = os.path.join(subset.image_dir, image_key + "_flip.npz")
@@ -1237,10 +1336,14 @@ class DatasetGroup(torch.utils.data.ConcatDataset):
     #   for dataset in self.datasets:
     #     dataset.make_buckets()
 
-    def cache_latents(self, vae):
+    def enable_XTI(self, *args, **kwargs):
+        for dataset in self.datasets:
+            dataset.enable_XTI(*args, **kwargs)
+
+    def cache_latents(self, vae, vae_batch_size=1):
         for i, dataset in enumerate(self.datasets):
             print(f"[Dataset {i}]")
-            dataset.cache_latents(vae)
+            dataset.cache_latents(vae, vae_batch_size)
 
     def is_latent_cacheable(self) -> bool:
         return all([dataset.is_latent_cacheable() for dataset in self.datasets])
@@ -1249,6 +1352,14 @@ class DatasetGroup(torch.utils.data.ConcatDataset):
         for dataset in self.datasets:
             dataset.set_current_epoch(epoch)
 
+    def set_current_step(self, step):
+        for dataset in self.datasets:
+            dataset.set_current_step(step)
+
+    def set_max_train_steps(self, max_train_steps):
+        for dataset in self.datasets:
+            dataset.set_max_train_steps(max_train_steps)
+
     def disable_token_padding(self):
         for dataset in self.datasets:
             dataset.disable_token_padding()
@@ -1256,36 +1367,54 @@ class DatasetGroup(torch.utils.data.ConcatDataset):
 
 def debug_dataset(train_dataset, show_input_ids=False):
     print(f"Total dataset length (steps) / データセットの長さ（ステップ数）: {len(train_dataset)}")
-    print("Escape for exit. / Escキーで中断、終了します")
+    print("`S` for next step, `E` for next epoch no. , Escape for exit. / Sキーで次のステップ、Eキーで次のエポック、Escキーで中断、終了します")
 
-    train_dataset.set_current_epoch(1)
-    k = 0
-    indices = list(range(len(train_dataset)))
-    random.shuffle(indices)
-    for i, idx in enumerate(indices):
-        example = train_dataset[idx]
-        if example["latents"] is not None:
-            print(f"sample has latents from npz file: {example['latents'].size()}")
-        for j, (ik, cap, lw, iid) in enumerate(
-            zip(example["image_keys"], example["captions"], example["loss_weights"], example["input_ids"])
-        ):
-            print(f'{ik}, size: {train_dataset.image_data[ik].image_size}, loss weight: {lw}, caption: "{cap}"')
-            if show_input_ids:
-                print(f"input ids: {iid}")
-            if example["images"] is not None:
-                im = example["images"][j]
-                print(f"image size: {im.size()}")
-                im = ((im.numpy() + 1.0) * 127.5).astype(np.uint8)
-                im = np.transpose(im, (1, 2, 0))  # c,H,W -> H,W,c
-                im = im[:, :, ::-1]  # RGB -> BGR (OpenCV)
-                if os.name == "nt":  # only windows
-                    cv2.imshow("img", im)
-                k = cv2.waitKey()
-                cv2.destroyAllWindows()
-                if k == 27:
-                    break
-        if k == 27 or (example["images"] is None and i >= 8):
+    epoch = 1
+    while True:
+        print(f"epoch: {epoch}")
+
+        steps = (epoch - 1) * len(train_dataset) + 1
+        indices = list(range(len(train_dataset)))
+        random.shuffle(indices)
+
+        k = 0
+        for i, idx in enumerate(indices):
+            train_dataset.set_current_epoch(epoch)
+            train_dataset.set_current_step(steps)
+            print(f"steps: {steps} ({i + 1}/{len(train_dataset)})")
+
+            example = train_dataset[idx]
+            if example["latents"] is not None:
+                print(f"sample has latents from npz file: {example['latents'].size()}")
+            for j, (ik, cap, lw, iid) in enumerate(
+                zip(example["image_keys"], example["captions"], example["loss_weights"], example["input_ids"])
+            ):
+                print(f'{ik}, size: {train_dataset.image_data[ik].image_size}, loss weight: {lw}, caption: "{cap}"')
+                if show_input_ids:
+                    print(f"input ids: {iid}")
+                if example["images"] is not None:
+                    im = example["images"][j]
+                    print(f"image size: {im.size()}")
+                    im = ((im.numpy() + 1.0) * 127.5).astype(np.uint8)
+                    im = np.transpose(im, (1, 2, 0))  # c,H,W -> H,W,c
+                    im = im[:, :, ::-1]  # RGB -> BGR (OpenCV)
+                    if os.name == "nt":  # only windows
+                        cv2.imshow("img", im)
+                    k = cv2.waitKey()
+                    cv2.destroyAllWindows()
+                    if k == 27 or k == ord("s") or k == ord("e"):
+                        break
+            steps += 1
+
+            if k == ord("e"):
+                break
+            if k == 27 or (example["images"] is None and i >= 8):
+                k = 27
+                break
+        if k == 27:
             break
+
+        epoch += 1
 
 
 def glob_images(directory, base="*"):
@@ -1295,8 +1424,8 @@ def glob_images(directory, base="*"):
             img_paths.extend(glob.glob(os.path.join(glob.escape(directory), base + ext)))
         else:
             img_paths.extend(glob.glob(glob.escape(os.path.join(directory, base + ext))))
-    # img_paths = list(set(img_paths))                    # 重複を排除
-    # img_paths.sort()
+    img_paths = list(set(img_paths))  # 重複を排除
+    img_paths.sort()
     return img_paths
 
 
@@ -1308,13 +1437,12 @@ def glob_images_pathlib(dir_path, recursive):
     else:
         for ext in IMAGE_EXTENSIONS:
             image_paths += list(dir_path.glob("*" + ext))
-    # image_paths = list(set(image_paths))        # 重複を排除
-    # image_paths.sort()
+    image_paths = list(set(image_paths))  # 重複を排除
+    image_paths.sort()
     return image_paths
 
 
 # endregion
-
 
 # region モジュール入れ替え部
 """
@@ -1771,6 +1899,38 @@ def add_training_arguments(parser: argparse.ArgumentParser, support_dreambooth: 
     parser.add_argument("--output_dir", type=str, default=None, help="directory to output trained model / 学習後のモデル出力先ディレクトリ")
     parser.add_argument("--output_name", type=str, default=None, help="base name of trained model file / 学習後のモデルの拡張子を除くファイル名")
     parser.add_argument(
+        "--huggingface_repo_id", type=str, default=None, help="huggingface repo name to upload / huggingfaceにアップロードするリポジトリ名"
+    )
+    parser.add_argument(
+        "--huggingface_repo_type", type=str, default=None, help="huggingface repo type to upload / huggingfaceにアップロードするリポジトリの種類"
+    )
+    parser.add_argument(
+        "--huggingface_path_in_repo",
+        type=str,
+        default=None,
+        help="huggingface model path to upload files / huggingfaceにアップロードするファイルのパス",
+    )
+    parser.add_argument("--huggingface_token", type=str, default=None, help="huggingface token / huggingfaceのトークン")
+    parser.add_argument(
+        "--huggingface_repo_visibility",
+        type=str,
+        default=None,
+        help="huggingface repository visibility ('public' for public, 'private' or None for private) / huggingfaceにアップロードするリポジトリの公開設定（'public'で公開、'private'またはNoneで非公開）",
+    )
+    parser.add_argument(
+        "--save_state_to_huggingface", action="store_true", help="save state to huggingface / huggingfaceにstateを保存する"
+    )
+    parser.add_argument(
+        "--resume_from_huggingface",
+        action="store_true",
+        help="resume from huggingface (ex: --resume {repo_id}/{path_in_repo}:{revision}:{repo_type}) / huggingfaceから学習を再開する(例: --resume {repo_id}/{path_in_repo}:{revision}:{repo_type})",
+    )
+    parser.add_argument(
+        "--async_upload",
+        action="store_true",
+        help="upload to huggingface asynchronously / huggingfaceに非同期でアップロードする",
+    )
+    parser.add_argument(
         "--save_precision",
         type=str,
         default=None,
@@ -1986,6 +2146,7 @@ def add_dataset_arguments(
         action="store_true",
         help="cache latents to reduce memory (augmentations must be disabled) / メモリ削減のためにlatentをcacheする（augmentationは使用不可）",
     )
+    parser.add_argument("--vae_batch_size", type=int, default=1, help="batch size for caching latents / latentのcache時のバッチサイズ")
     parser.add_argument(
         "--enable_bucket", action="store_true", help="enable buckets for multi aspect ratio training / 複数解像度学習のためのbucketを有効にする"
     )
@@ -1999,6 +2160,20 @@ def add_dataset_arguments(
     )
     parser.add_argument(
         "--bucket_no_upscale", action="store_true", help="make bucket for each image without upscaling / 画像を拡大せずbucketを作成します"
+    )
+
+    parser.add_argument(
+        "--token_warmup_min",
+        type=int,
+        default=1,
+        help="start learning at N tags (token means comma separated strinfloatgs) / タグ数をN個から増やしながら学習する",
+    )
+
+    parser.add_argument(
+        "--token_warmup_step",
+        type=float,
+        default=0,
+        help="tag length reaches maximum on N steps (or N*max_train_steps if N<1) / N（N<1ならN*max_train_steps）ステップでタグ長が最大になる。デフォルトは0（最初から最大）",
     )
 
     if support_caption_dropout:
@@ -2118,6 +2293,57 @@ def read_config_from_file(args: argparse.Namespace, parser: argparse.ArgumentPar
 # endregion
 
 # region utils
+
+
+def resume_from_local_or_hf_if_specified(accelerator, args):
+    if not args.resume:
+        return
+
+    if not args.resume_from_huggingface:
+        print(f"resume training from local state: {args.resume}")
+        accelerator.load_state(args.resume)
+        return
+
+    print(f"resume training from huggingface state: {args.resume}")
+    repo_id = args.resume.split("/")[0] + "/" + args.resume.split("/")[1]
+    path_in_repo = "/".join(args.resume.split("/")[2:])
+    revision = None
+    repo_type = None
+    if ":" in path_in_repo:
+        divided = path_in_repo.split(":")
+        if len(divided) == 2:
+            path_in_repo, revision = divided
+            repo_type = "model"
+        else:
+            path_in_repo, revision, repo_type = divided
+    print(f"Downloading state from huggingface: {repo_id}/{path_in_repo}@{revision}")
+
+    list_files = huggingface_util.list_dir(
+        repo_id=repo_id,
+        subfolder=path_in_repo,
+        revision=revision,
+        token=args.huggingface_token,
+        repo_type=repo_type,
+    )
+
+    async def download(filename) -> str:
+        def task():
+            return hf_hub_download(
+                repo_id=repo_id,
+                filename=filename,
+                revision=revision,
+                repo_type=repo_type,
+                token=args.huggingface_token,
+            )
+
+        return await asyncio.get_event_loop().run_in_executor(None, task)
+
+    loop = asyncio.get_event_loop()
+    results = loop.run_until_complete(asyncio.gather(*[download(filename=filename.rfilename) for filename in list_files]))
+    if len(results) == 0:
+        raise ValueError("No files found in the specified repo id/path/revision / 指定されたリポジトリID/パス/リビジョンにファイルが見つかりませんでした")
+    dirname = os.path.dirname(results[0])
+    accelerator.load_state(dirname)
 
 
 def get_optimizer(args, trainable_params):
@@ -2319,7 +2545,7 @@ def get_scheduler_fix(args, optimizer: Optimizer, num_processes: int):
     Unified API to get any scheduler from its name.
     """
     name = args.lr_scheduler
-    num_warmup_steps = args.lr_warmup_steps
+    num_warmup_steps: Optional[int] = args.lr_warmup_steps
     num_training_steps = args.max_train_steps * num_processes * args.gradient_accumulation_steps
     num_cycles = args.lr_scheduler_num_cycles
     power = args.lr_scheduler_power
@@ -2343,6 +2569,11 @@ def get_scheduler_fix(args, optimizer: Optimizer, num_processes: int):
 
             lr_scheduler_kwargs[key] = value
 
+    def wrap_check_needless_num_warmup_steps(return_vals):
+        if num_warmup_steps is not None and num_warmup_steps != 0:
+            raise ValueError(f"{name} does not require `num_warmup_steps`. Set None or 0.")
+        return return_vals
+
     # using any lr_scheduler from other library
     if args.lr_scheduler_type:
         lr_scheduler_type = args.lr_scheduler_type
@@ -2355,7 +2586,7 @@ def get_scheduler_fix(args, optimizer: Optimizer, num_processes: int):
             lr_scheduler_type = values[-1]
         lr_scheduler_class = getattr(lr_scheduler_module, lr_scheduler_type)
         lr_scheduler = lr_scheduler_class(optimizer, **lr_scheduler_kwargs)
-        return lr_scheduler
+        return wrap_check_needless_num_warmup_steps(lr_scheduler)
 
     if name.startswith("adafactor"):
         assert (
@@ -2363,12 +2594,12 @@ def get_scheduler_fix(args, optimizer: Optimizer, num_processes: int):
         ), f"adafactor scheduler must be used with Adafactor optimizer / adafactor schedulerはAdafactorオプティマイザと同時に使ってください"
         initial_lr = float(name.split(":")[1])
         # print("adafactor scheduler init lr", initial_lr)
-        return transformers.optimization.AdafactorSchedule(optimizer, initial_lr)
+        return wrap_check_needless_num_warmup_steps(transformers.optimization.AdafactorSchedule(optimizer, initial_lr))
 
     name = SchedulerType(name)
     schedule_func = TYPE_TO_SCHEDULER_FUNCTION[name]
     if name == SchedulerType.CONSTANT:
-        return schedule_func(optimizer)
+        return wrap_check_needless_num_warmup_steps(schedule_func(optimizer))
 
     # All other schedulers require `num_warmup_steps`
     if num_warmup_steps is None:
@@ -2499,14 +2730,15 @@ def prepare_dtype(args: argparse.Namespace):
     return weight_dtype, save_dtype
 
 
-def load_target_model(args: argparse.Namespace, weight_dtype):
+def load_target_model(args: argparse.Namespace, weight_dtype, device="cpu"):
     name_or_path = args.pretrained_model_name_or_path
     name_or_path = os.readlink(name_or_path) if os.path.islink(name_or_path) else name_or_path
     load_stable_diffusion_format = os.path.isfile(name_or_path)  # determine SD or Diffusers
     if load_stable_diffusion_format:
         print("load StableDiffusion checkpoint")
-        text_encoder, vae, unet = model_util.load_models_from_stable_diffusion_checkpoint(args.v2, name_or_path)
+        text_encoder, vae, unet = model_util.load_models_from_stable_diffusion_checkpoint(args.v2, name_or_path, device)
     else:
+        # Diffusers model is loaded to CPU
         print("load Diffusers pretrained models")
         try:
             pipe = StableDiffusionPipeline.from_pretrained(name_or_path, tokenizer=None, safety_checker=None)
@@ -2625,6 +2857,8 @@ def save_sd_model_on_epoch_end(
             model_util.save_stable_diffusion_checkpoint(
                 args.v2, ckpt_file, text_encoder, unet, src_path, epoch_no, global_step, save_dtype, vae
             )
+            if args.huggingface_repo_id is not None:
+                huggingface_util.upload(args, ckpt_file, "/" + ckpt_name)
 
         def remove_sd(old_epoch_no):
             _, old_ckpt_name = get_epoch_ckpt_name(args, use_safetensors, old_epoch_no)
@@ -2644,6 +2878,8 @@ def save_sd_model_on_epoch_end(
             model_util.save_diffusers_checkpoint(
                 args.v2, out_dir, text_encoder, unet, src_path, vae=vae, use_safetensors=use_safetensors
             )
+            if args.huggingface_repo_id is not None:
+                huggingface_util.upload(args, out_dir, "/" + model_name)
 
         def remove_du(old_epoch_no):
             out_dir_old = os.path.join(args.output_dir, EPOCH_DIFFUSERS_DIR_NAME.format(model_name, old_epoch_no))
@@ -2661,7 +2897,11 @@ def save_sd_model_on_epoch_end(
 
 def save_state_on_epoch_end(args: argparse.Namespace, accelerator, model_name, epoch_no):
     print("saving state.")
-    accelerator.save_state(os.path.join(args.output_dir, EPOCH_STATE_NAME.format(model_name, epoch_no)))
+    state_dir = os.path.join(args.output_dir, EPOCH_STATE_NAME.format(model_name, epoch_no))
+    accelerator.save_state(state_dir)
+    if args.save_state_to_huggingface:
+        print("uploading state to huggingface.")
+        huggingface_util.upload(args, state_dir, "/" + EPOCH_STATE_NAME.format(model_name, epoch_no))
 
     last_n_epochs = args.save_last_n_epochs_state if args.save_last_n_epochs_state else args.save_last_n_epochs
     if last_n_epochs is not None:
@@ -2670,6 +2910,17 @@ def save_state_on_epoch_end(args: argparse.Namespace, accelerator, model_name, e
         if os.path.exists(state_dir_old):
             print(f"removing old state: {state_dir_old}")
             shutil.rmtree(state_dir_old)
+
+
+def save_state_on_train_end(args: argparse.Namespace, accelerator):
+    print("saving last state.")
+    os.makedirs(args.output_dir, exist_ok=True)
+    model_name = DEFAULT_LAST_OUTPUT_NAME if args.output_name is None else args.output_name
+    state_dir = os.path.join(args.output_dir, LAST_STATE_NAME.format(model_name))
+    accelerator.save_state(state_dir)
+    if args.save_state_to_huggingface:
+        print("uploading last state to huggingface.")
+        huggingface_util.upload(args, state_dir, "/" + LAST_STATE_NAME.format(model_name))
 
 
 def save_sd_model_on_train_end(
@@ -2696,6 +2947,8 @@ def save_sd_model_on_train_end(
         model_util.save_stable_diffusion_checkpoint(
             args.v2, ckpt_file, text_encoder, unet, src_path, epoch, global_step, save_dtype, vae
         )
+        if args.huggingface_repo_id is not None:
+            huggingface_util.upload(args, ckpt_file, "/" + ckpt_name, force_sync_upload=True)
     else:
         out_dir = os.path.join(args.output_dir, model_name)
         os.makedirs(out_dir, exist_ok=True)
@@ -2704,13 +2957,8 @@ def save_sd_model_on_train_end(
         model_util.save_diffusers_checkpoint(
             args.v2, out_dir, text_encoder, unet, src_path, vae=vae, use_safetensors=use_safetensors
         )
-
-
-def save_state_on_train_end(args: argparse.Namespace, accelerator):
-    print("saving last state.")
-    os.makedirs(args.output_dir, exist_ok=True)
-    model_name = DEFAULT_LAST_OUTPUT_NAME if args.output_name is None else args.output_name
-    accelerator.save_state(os.path.join(args.output_dir, LAST_STATE_NAME.format(model_name)))
+        if args.huggingface_repo_id is not None:
+            huggingface_util.upload(args, out_dir, "/" + model_name, force_sync_upload=True)
 
 
 # scheduler:
@@ -2935,3 +3183,24 @@ class ImageLoadingDataset(torch.utils.data.Dataset):
 
 
 # endregion
+
+
+# collate_fn用 epoch,stepはmultiprocessing.Value
+class collater_class:
+    def __init__(self, epoch, step, dataset):
+        self.current_epoch = epoch
+        self.current_step = step
+        self.dataset = dataset  # not used if worker_info is not None, in case of multiprocessing
+
+    def __call__(self, examples):
+        worker_info = torch.utils.data.get_worker_info()
+        # worker_info is None in the main process
+        if worker_info is not None:
+            dataset = worker_info.dataset
+        else:
+            dataset = self.dataset
+
+        # set epoch and step
+        dataset.set_current_epoch(self.current_epoch.value)
+        dataset.set_current_step(self.current_step.value)
+        return examples[0]
