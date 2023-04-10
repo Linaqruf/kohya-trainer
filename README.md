@@ -59,7 +59,7 @@ __What Changes?__
         - To add multiple tags, separate each tag by comma `(,)`, e.g. `1girl, garden, school uniform`
         - Note that because of using `insert()`, the result will be backward instead: `school uniform, garden, 1girl`
         - To remove tags, set `custom_tags` to your desired words and set `remove_tags`
-    - Added `sub_folder` to scrape images to desired path, useful for multi-concept or multi-directories training.
+    - Added `sub_folder` option, useful for multi-concept or multi-directories training.
         - If the value is `--all` it will process directory and subdirectories in `train_data_dir` recursively.
         - If the value is empty, default path is `train_data_dir`
         - If the value is string and not path, default path is `train_data_dir` + `sub_folder`
@@ -70,7 +70,7 @@ __What Changes?__
     - Dreambooth notebook:
         - Deleted `instance_token` and `class_token` and changed into `activation word`
         - Support multi-concept training
-            - Recursive, it automatically finds subdirectories, if `supported_extensions` exist `(".png", ".jpg", ".jpeg", ".webp", ".bmp")` it will add the path to [[dataset.subsets]] in `dataset_config.toml`
+            - Recursive, it automatically finds subdirectories, if `supported_extensions` exist `(".png", ".jpg", ".jpeg", ".webp", ".bmp")` it will add the path to `[[dataset.subsets]]` in `dataset_config.toml`
             - You can set parent folder as `train_data_dir` like old version, and you can also normally set `train_data_dir`.
             - To make sure multi-concept training is implemented, I put back folder naming scheme, but now it's optional.
             ```
