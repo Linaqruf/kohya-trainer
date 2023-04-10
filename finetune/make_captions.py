@@ -137,7 +137,7 @@ def main(args):
 
 def setup_parser() -> argparse.ArgumentParser:
   parser = argparse.ArgumentParser()
-  parser.add_argument("--train_data_dir", type=str, help="directory for train images / 学習画像データのディレクトリ")
+  parser.add_argument("train_data_dir", type=str, help="directory for train images / 学習画像データのディレクトリ")
   parser.add_argument("--caption_weights", type=str, default="https://storage.googleapis.com/sfr-vision-language-research/BLIP/models/model_large_caption.pth",
                       help="BLIP caption weights (model_large_caption.pth) / BLIP captionの重みファイル(model_large_caption.pth)")
   parser.add_argument("--caption_extention", type=str, default=None,

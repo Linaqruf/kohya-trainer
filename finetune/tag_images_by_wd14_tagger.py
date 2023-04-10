@@ -205,7 +205,7 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--train_data_dir", type=str, help="directory for train images / 学習画像データのディレクトリ")
+    parser.add_argument("train_data_dir", type=str, help="directory for train images / 学習画像データのディレクトリ")
     parser.add_argument("--repo_id", type=str, default=DEFAULT_WD14_TAGGER_REPO,
     help="repo id for wd14 tagger on Hugging Face / Hugging Faceのwd14 taggerのリポジトリID")
     parser.add_argument("--model_dir", type=str, default="wd14_tagger_model",

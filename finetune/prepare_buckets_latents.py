@@ -242,10 +242,10 @@ def main(args):
 
 def setup_parser() -> argparse.ArgumentParser:
   parser = argparse.ArgumentParser()
-  parser.add_argument("--train_data_dir", type=str, help="directory for train images / 学習画像データのディレクトリ")
-  parser.add_argument("--in_json", type=str, help="metadata file to input / 読み込むメタデータファイル")
-  parser.add_argument("--out_json", type=str, help="metadata file to output / メタデータファイル書き出し先")
-  parser.add_argument("--model_name_or_path", type=str, help="model name or path to encode latents / latentを取得するためのモデル")
+  parser.add_argument("train_data_dir", type=str, help="directory for train images / 学習画像データのディレクトリ")
+  parser.add_argument("in_json", type=str, help="metadata file to input / 読み込むメタデータファイル")
+  parser.add_argument("out_json", type=str, help="metadata file to output / メタデータファイル書き出し先")
+  parser.add_argument("model_name_or_path", type=str, help="model name or path to encode latents / latentを取得するためのモデル")
   parser.add_argument("--v2", action='store_true',
                       help='not used (for backward compatibility) / 使用されません（互換性のため残してあります）')
   parser.add_argument("--batch_size", type=int, default=1, help="batch size in inference / 推論時のバッチサイズ")
