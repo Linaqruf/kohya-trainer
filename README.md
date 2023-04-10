@@ -18,15 +18,15 @@ __What Changes?__
 - Use python dict for passing argparse value
 - Set AnyLoRA as default pretrained model
 - Change AnyLoRA version to bakedVAE
-- Added a logic to download multiple custom model or LoRA by separate the link with comma `(,)`
+- Added a logic to download multiple custom model or LoRA by separating the link with comma `(,)`
 - Revamped `3.3. Image Scraper (Optional)`:
     - Simplified the cell, hide every `parameter` that should be default, e.g. `user_agent`
-    - Delete `tags1` and `tags2` field, and changed it to `prompt`. Now user can type their desired tags more than 2 (except: `danbooru`) by separate each tags by comma `(,)`
+    - Delete `tags1` and `tags2` field, and changed it to `prompt`. Now user can type their desired tags more than 2 (except: `danbooru`) by separating each tag with a comma `(,)`
     - Added `sub_folder` to scrape images to desired path, useful for multi-concept or multi-directories training.
         - If the value is empty, default path is `train_data_dir`
         - if the value is string and not path, default path is `train_data_dir` + `sub_folder`
         - if the value is path, default path is `sub_folder`
-    - Added `range` to limit the number of images to scrape. How to use it: Add `1-200` to download 200 images. Newest Images in the server ar prioritized. 
+    - Added `range` to limit the number of images to scrape. How to use it: Add `1-200` to download 200 images. Newest Images in the server are prioritized. 
 - Added `recursive` option to `4.1. Data Cleaning`, to clean unsupported files and convert RGBA to RGB recursively. Useful for multi-concept or multi-directories training.
 - Refactoring `4.2.1. BLIP Captioning`:
     - Added `recursive` option to `4.2.1. BLIP Captioning`, to generate captions recursively, by checking sub-directories as well. Useful for multi-concept or multi-directories training.
@@ -34,10 +34,10 @@ __What Changes?__
 - Revamped `Waifu Diffusion 1.4 Tagger V2`:
     - Added WD Tagger new model, and set to default : [SmilingWolf/wd-v1-4-convnextv2-tagger-v2](https://huggingface.co/SmilingWolf/wd-v1-4-convnextv2-tagger-v2)
     - Added `--remove_underscore` args to the WD Tagger script.
-    - Changed how the code works, by not only added general tags (category = `0`) but also character tags (category = `4`)
-    - Characofter tags can be regulated by specify `--character_threshold` parameter (default = `0.35`)
+    - Changed how the code works, by not only adding general tags (category = `0`) but also character tags (category = `4`)
+    - Character tags can be regulated by specifying `--character_threshold` parameter (default = `0.35`)
     - Changed `--thresh` to `--general_threshold` (default = `0.35`)
-    - Added `--undesired_words` args to not added specified words when interrogating images, separate each words by comma, e.g. `1girl, scenery`
+    - Added `--undesired_words` args to not add specified words when interrogating images, separate each word by comma, e.g. `1girl, scenery`
     - Changed how `--debug` works, new template :
     ```
         {filename} 
@@ -51,13 +51,13 @@ __What Changes?__
     - Change the code logic by using method from Python List. 
     - Using `append()` to add tags to the end of lines.
     - Using `insert()` to add tags to the beginning of lines.
-    - Using `remove()` to remove tags separate by comma.
+    - Using `remove()` to remove tags separated by comma.
     - `Cheatsheet` from v14.6 is outdated, now user can easily add or remove tags
         - Tags will be converted to list, so `"_"` or `" "` doesn't matter anymore
-        - However any tags contain `"_"` still be replaced to `" "`
-        - To add tag, set `1girl` to `custom_tags` then run, if you set `append`, it will be added to the end of lines instead.
-        - To add multiple tags, separate each tags by comma `(,)`, e.g. `1girl, garden, school uniform`
-        - Note that because using `insert()`, the result will be backward instead `school uniform, garden, 1girl`
+        - However, any tags containing `"_"` will still be replaced with `" "`
+        - To add a tag, set `1girl` to `custom_tags` then run, if you set `append`, it will be added to the end of lines instead.
+        - To add multiple tags, separate each tag by comma `(,)`, e.g. `1girl, garden, school uniform`
+        - Note that because of using `insert()`, the result will be backward instead: `school uniform, garden, 1girl`
         - To remove tags, set `custom_tags` to your desired words and set `remove_tags`
     - Added `sub_folder` to scrape images to desired path, useful for multi-concept or multi-directories training.
         - If the value is `--all` it will process directory and subdirectories in `train_data_dir` recursively.
@@ -65,15 +65,14 @@ __What Changes?__
         - If the value is string and not path, default path is `train_data_dir` + `sub_folder`
         - If the value is path, default path is `sub_folder`
 - Finetune notebook:
-  - Added `recursive` option to `4.3. Merge Annotation Into JSON` and
-  `Create Buckets & Convert to Latents`
+  - Added `recursive` option to `4.3. Merge Annotation Into JSON` and `Create Buckets & Convert to Latents`
 - Revamped `5.2. Dataset Config`:
     - Dreambooth notebook:
         - Deleted `instance_token` and `class_token` and changed into `activation word`
         - Support multi-concept training
-            - Recursive, it automatically find subdirectories, if `supported_extensions` exist `(".png", ".jpg", ".jpeg", ".webp", ".bmp")` it will add the path to [[dataset.subsets]] in `dataset_config.toml`
+            - Recursive, it automatically finds subdirectories, if `supported_extensions` exist `(".png", ".jpg", ".jpeg", ".webp", ".bmp")` it will add the path to [[dataset.subsets]] in `dataset_config.toml`
             - You can set parent folder as `train_data_dir` like old version, and you can also normally set `train_data_dir`.
-            - To make sure multi-concept training implemented, I put back folder naming scheme, but now it's optional.
+            - To make sure multi-concept training is implemented, I put back folder naming scheme, but now it's optional.
             ```
             <num_repeats>_<class_token>
             ```
@@ -81,10 +80,10 @@ __What Changes?__
             - Because it's optional, if folder naming scheme is not detected, it will get `num_repeats` from `dataset_repeats` and `class_token` from `activation_word`
         - Added `token_to_captions`
             - User can add `activation_word` to captions/tags
-            - if folder naming scheme detected it will add `<class_token>` from folder name instead of activation word
-            - `keep_tokens` set to `1` if `token_to_captions` enabled
+            - if folder naming scheme is detected, it will add `<class_token>` from folder name instead of activation word
+            - `keep_tokens` set to `1` if `token_to_captions` is enabled
     - Fine-tune notebook:
-        - Deleted support for `--dataset_config`, revert back to old fine-tuning dataset config.
+        - Deleted support for `--dataset_config`, reverted back to old fine-tuning dataset config.
         - Support multi-directory training
             - Set `recursive` to 
                 - `4.3. Merge Annotation Into JSON`
