@@ -1,11 +1,12 @@
 import argparse
 import json
+import os
+import re
 from pathlib import Path
 from typing import List
 from tqdm import tqdm
+from collections import Counter
 import library.train_util as train_util
-import os
-import re
 
 TAGS_EXT = ".txt"
 CAPTION_EXT = ".caption"
@@ -107,24 +108,51 @@ def clean_caption(caption):
       replaced = bef != caption
   return caption
 
+def count_files(image_paths, metadata):
+    counts = Counter({'_captions': 0, '_tags': 0})
+
+    for image_key in metadata:
+        if 'tags' not in metadata[image_key]:
+            counts['_tags'] += 1
+        if 'caption' not in metadata[image_key]:
+            counts['_captions'] += 1
+
+    return counts
+
+def report_counts(counts, total_files):
+    for key, value in counts.items():
+        if value == total_files:
+            print(f"No {key.replace('_', '')} found for any of the {total_files} images")
+        elif value == 0:
+            print(f"All {total_files} images have {key.replace('_', '')}")
+        else:
+            print(f"{total_files - value}/{total_files} images have {key.replace('_', '')}")
+
 def merge_metadata(image_paths, metadata, full_path):
     for image_path in tqdm(image_paths):
         tags_path = image_path.with_suffix(TAGS_EXT)
-        caption_path = image_path.with_suffix(CAPTION_EXT)
-        tags = tags_path.read_text(encoding='utf-8').strip()
-        caption = caption_path.read_text(encoding='utf-8').strip()
+        if not tags_path.exists():
+            tags_path = image_path.joinpath(TAGS_EXT)
 
-        if not os.path.exists(tags_path):
-            tags_path = os.path.join(image_path, TAGS_EXT)
-        if not os.path.exists(caption_path):
-            caption_path = os.path.join(image_path, CAPTION_EXT)
+        caption_path = image_path.with_suffix(CAPTION_EXT)
+        if not caption_path.exists():
+            caption_path = image_path.joinpath(CAPTION_EXT)
 
         image_key = str(image_path) if full_path else image_path.stem
         if image_key not in metadata:
             metadata[image_key] = {}
 
-        metadata[image_key]['tags'] = tags
-        metadata[image_key]['caption'] = caption
+        if tags_path.is_file():
+            tags = tags_path.read_text(encoding='utf-8').strip()
+            metadata[image_key]['tags'] = tags
+
+        if caption_path.is_file():
+            caption = caption_path.read_text(encoding='utf-8').strip()
+            metadata[image_key]['caption'] = caption
+
+    counts = count_files(image_paths, metadata)
+    report_counts(counts, len(image_paths))
+
     return metadata
 
 def clean_metadata(metadata):
@@ -141,6 +169,7 @@ def clean_metadata(metadata):
             org = caption
             caption = clean_caption(caption)
             metadata[image_key]['caption'] = caption
+            
     return metadata
 
 def main(args):
