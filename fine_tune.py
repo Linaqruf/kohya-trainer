@@ -21,7 +21,7 @@ from library.config_util import (
     BlueprintGenerator,
 )
 import library.custom_train_functions as custom_train_functions
-from library.custom_train_functions import apply_snr_weight
+from library.custom_train_functions import apply_snr_weight, get_weighted_text_embeddings
 
 
 def train(args):
@@ -142,11 +142,13 @@ def train(args):
         vae.requires_grad_(False)
         vae.eval()
         with torch.no_grad():
-            train_dataset_group.cache_latents(vae, args.vae_batch_size)
+            train_dataset_group.cache_latents(vae, args.vae_batch_size, args.cache_latents_to_disk, accelerator.is_main_process)
         vae.to("cpu")
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         gc.collect()
+
+        accelerator.wait_for_everyone()
 
     # 学習を準備する：モデルを適切な状態にする
     training_models = []
@@ -273,7 +275,7 @@ def train(args):
             with accelerator.accumulate(training_models[0]):  # 複数モデルに対応していない模様だがとりあえずこうしておく
                 with torch.no_grad():
                     if "latents" in batch and batch["latents"] is not None:
-                        latents = batch["latents"].to(accelerator.device).to(dtype=weight_dtype)
+                        latents = batch["latents"].to(accelerator.device) # .to(dtype=weight_dtype)
                     else:
                         # latentに変換
                         latents = vae.encode(batch["images"].to(dtype=weight_dtype)).latent_dist.sample()
@@ -282,10 +284,19 @@ def train(args):
 
                 with torch.set_grad_enabled(args.train_text_encoder):
                     # Get the text embedding for conditioning
-                    input_ids = batch["input_ids"].to(accelerator.device)
-                    encoder_hidden_states = train_util.get_hidden_states(
-                        args, input_ids, tokenizer, text_encoder, None if not args.full_fp16 else weight_dtype
-                    )
+                    if args.weighted_captions:
+                      encoder_hidden_states = get_weighted_text_embeddings(tokenizer,
+                        text_encoder,
+                        batch["captions"],
+                        accelerator.device,
+                        args.max_token_length // 75 if args.max_token_length else 1,
+                        clip_skip=args.clip_skip,
+                        )
+                    else:
+                      input_ids = batch["input_ids"].to(accelerator.device)
+                      encoder_hidden_states = train_util.get_hidden_states(
+                          args, input_ids, tokenizer, text_encoder, None if not args.full_fp16 else weight_dtype
+                      )
 
                 # Sample noise that we'll add to the latents
                 noise = torch.randn_like(latents, device=latents.device)
@@ -302,7 +313,8 @@ def train(args):
                 noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
                 # Predict the noise residual
-                noise_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
+                with accelerator.autocast():
+                    noise_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
 
                 if args.v_parameterization:
                     # v-parameterization training
