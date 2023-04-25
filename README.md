@@ -15,7 +15,7 @@ Github Repository for [kohya-ss/sd-scripts](https://github.com/kohya-ss/sd-scrip
 ##### v15.0.1 (25/04):
 __What Changes?__
 - Bump Tensorboard and Tensorflow version to 2.12.0 https://github.com/Linaqruf/kohya-trainer/issues/200
-- Fix `class_token` undefined if `activation_word` = 1 word
+- Fix `class_token` undefined if `activation_word` = 1 word https://github.com/Linaqruf/kohya-trainer/issues/198
     - But also delete `token_to_captions` function, because it's complicated and also it has the same function with `4.2.3. Custom Caption/Tag`
     
 ##### v15.0.0 (10/04):
