@@ -7,7 +7,7 @@ einops==0.6.0
 diffusers[torch]==0.10.2
 pytorch-lightning==1.9.0
 bitsandbytes==0.35.0
-tensorboard==2.10.1
+tensorboard==2.12.0
 safetensors==0.2.6
 # gradio==3.16.2
 # altair==4.2.2
@@ -20,7 +20,7 @@ timm==0.6.12
 fairscale==0.4.13
 # for WD14 captioning
 # tensorflow<2.11
-tensorflow==2.10.1
+tensorflow==2.12.0
 huggingface-hub==0.13.4
 # for kohya trainer colab
 gallery-dl==1.25.1
