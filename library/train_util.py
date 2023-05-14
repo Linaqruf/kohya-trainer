@@ -3369,10 +3369,10 @@ def sample_images(
 
     with torch.no_grad():
         with accelerator.autocast():
-            for prompt in prompts:
+            for i, prompt in enumerate(prompts):
                 if not accelerator.is_main_process:
                     continue
-                
+            
                 if isinstance(prompt, dict):
                     negative_prompt = prompt.get("negative_prompt")
                     sample_steps = prompt.get("sample_steps", 30)
