@@ -311,6 +311,7 @@ class FlashAttentionFunction(torch.autograd.Function):
         return dq, dk, dv, None, None, None, None
 
 
+# TODO common train_util.py
 def replace_unet_modules(unet: diffusers.models.unet_2d_condition.UNet2DConditionModel, mem_eff_attn, xformers):
     if mem_eff_attn:
         replace_unet_cross_attn_to_memory_efficient()
@@ -319,7 +320,7 @@ def replace_unet_modules(unet: diffusers.models.unet_2d_condition.UNet2DConditio
 
 
 def replace_unet_cross_attn_to_memory_efficient():
-    print("Replace CrossAttention.forward to use NAI style Hypernetwork and FlashAttention")
+    print("CrossAttention.forward has been replaced to FlashAttention (not xformers) and NAI style Hypernetwork")
     flash_func = FlashAttentionFunction
 
     def forward_flash_attn(self, x, context=None, mask=None):
@@ -359,7 +360,7 @@ def replace_unet_cross_attn_to_memory_efficient():
 
 
 def replace_unet_cross_attn_to_xformers():
-    print("Replace CrossAttention.forward to use NAI style Hypernetwork and xformers")
+    print("CrossAttention.forward has been replaced to enable xformers and NAI style Hypernetwork")
     try:
         import xformers.ops
     except ImportError:
@@ -399,6 +400,104 @@ def replace_unet_cross_attn_to_xformers():
         return out
 
     diffusers.models.attention.CrossAttention.forward = forward_xformers
+
+
+def replace_vae_modules(vae: diffusers.models.AutoencoderKL, mem_eff_attn, xformers):
+    if mem_eff_attn:
+        replace_vae_attn_to_memory_efficient()
+    elif xformers:
+        # とりあえずDiffusersのxformersを使う。AttentionがあるのはMidBlockのみ
+        print("Use Diffusers xformers for VAE")
+        vae.set_use_memory_efficient_attention_xformers(True)
+
+    """
+    # VAEがbfloat16でメモリ消費が大きい問題を解決する
+    upsamplers = []
+    for block in vae.decoder.up_blocks:
+        if block.upsamplers is not None:
+            upsamplers.extend(block.upsamplers)
+
+    def forward_upsample(_self, hidden_states, output_size=None):
+        assert hidden_states.shape[1] == _self.channels
+        if _self.use_conv_transpose:
+            return _self.conv(hidden_states)
+
+        dtype = hidden_states.dtype
+        if dtype == torch.bfloat16:
+            assert output_size is None
+            # repeat_interleaveはすごく遅いが、回数はあまり呼ばれないので許容する
+            hidden_states = hidden_states.repeat_interleave(2, dim=-1)
+            hidden_states = hidden_states.repeat_interleave(2, dim=-2)
+        else:
+            if hidden_states.shape[0] >= 64:
+                hidden_states = hidden_states.contiguous()
+
+            # if `output_size` is passed we force the interpolation output
+            # size and do not make use of `scale_factor=2`
+            if output_size is None:
+                hidden_states = torch.nn.functional.interpolate(hidden_states, scale_factor=2.0, mode="nearest")
+            else:
+                hidden_states = torch.nn.functional.interpolate(hidden_states, size=output_size, mode="nearest")
+
+        if _self.use_conv:
+            if _self.name == "conv":
+                hidden_states = _self.conv(hidden_states)
+            else:
+                hidden_states = _self.Conv2d_0(hidden_states)
+        return hidden_states
+
+    # replace upsamplers
+    for upsampler in upsamplers:
+        # make new scope
+        def make_replacer(upsampler):
+            def forward(hidden_states, output_size=None):
+                return forward_upsample(upsampler, hidden_states, output_size)
+
+            return forward
+
+        upsampler.forward = make_replacer(upsampler)
+"""
+    
+
+def replace_vae_attn_to_memory_efficient():
+    print("AttentionBlock.forward has been replaced to FlashAttention (not xformers)")
+    flash_func = FlashAttentionFunction
+
+    def forward_flash_attn(self, hidden_states):
+        print("forward_flash_attn")
+        q_bucket_size = 512
+        k_bucket_size = 1024
+
+        residual = hidden_states
+        batch, channel, height, width = hidden_states.shape
+
+        # norm
+        hidden_states = self.group_norm(hidden_states)
+
+        hidden_states = hidden_states.view(batch, channel, height * width).transpose(1, 2)
+
+        # proj to q, k, v
+        query_proj = self.query(hidden_states)
+        key_proj = self.key(hidden_states)
+        value_proj = self.value(hidden_states)
+
+        query_proj, key_proj, value_proj = map(
+            lambda t: rearrange(t, "b n (h d) -> b h n d", h=self.num_heads), (query_proj, key_proj, value_proj)
+        )
+
+        out = flash_func.apply(query_proj, key_proj, value_proj, None, False, q_bucket_size, k_bucket_size)
+
+        out = rearrange(out, "b h n d -> b n (h d)")
+
+        # compute next hidden_states
+        hidden_states = self.proj_attn(hidden_states)
+        hidden_states = hidden_states.transpose(-1, -2).reshape(batch, channel, height, width)
+
+        # res connect and rescale
+        hidden_states = (hidden_states + residual) / self.rescale_output_factor
+        return hidden_states
+
+    diffusers.models.attention.AttentionBlock.forward = forward_flash_attn
 
 
 # endregion
@@ -945,7 +1044,7 @@ class PipelineLike:
 
             # encode the init image into latents and scale the latents
             init_image = init_image.to(device=self.device, dtype=latents_dtype)
-            if init_image.size()[2:] == (height // 8, width // 8):
+            if init_image.size()[-2:] == (height // 8, width // 8):
                 init_latents = init_image
             else:
                 if vae_batch_size >= batch_size:
@@ -955,7 +1054,7 @@ class PipelineLike:
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
                     init_latents = []
-                    for i in tqdm(range(0, batch_size, vae_batch_size)):
+                    for i in tqdm(range(0, min(batch_size, len(init_image)), vae_batch_size)):
                         init_latent_dist = self.vae.encode(
                             init_image[i : i + vae_batch_size] if vae_batch_size > 1 else init_image[i].unsqueeze(0)
                         ).latent_dist
@@ -1015,7 +1114,7 @@ class PipelineLike:
             if self.control_nets:
                 if reginonal_network:
                     num_sub_and_neg_prompts = len(text_embeddings) // batch_size
-                    text_emb_last = text_embeddings[num_sub_and_neg_prompts - 2::num_sub_and_neg_prompts]   # last subprompt
+                    text_emb_last = text_embeddings[num_sub_and_neg_prompts - 2 :: num_sub_and_neg_prompts]  # last subprompt
                 else:
                     text_emb_last = text_embeddings
                 noise_pred = original_control_net.call_unet_and_control_net(
@@ -2091,7 +2190,7 @@ def main(args):
         dtype = torch.float32
 
     highres_fix = args.highres_fix_scale is not None
-    assert not highres_fix or args.image_path is None, f"highres_fix doesn't work with img2img / highres_fixはimg2imgと同時に使えません"
+    # assert not highres_fix or args.image_path is None, f"highres_fix doesn't work with img2img / highres_fixはimg2imgと同時に使えません"
 
     if args.v_parameterization and not args.v2:
         print("v_parameterization should be with v2 / v1でv_parameterizationを使用することは想定されていません")
@@ -2142,6 +2241,7 @@ def main(args):
     # xformers、Hypernetwork対応
     if not args.diffusers_xformers:
         replace_unet_modules(unet, not args.xformers, args.xformers)
+        replace_vae_modules(vae, not args.xformers, args.xformers)
 
     # tokenizerを読み込む
     print("loading tokenizer")
@@ -2250,7 +2350,27 @@ def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # "mps"を考量してない
 
     # custom pipelineをコピったやつを生成する
+    if args.vae_slices:
+        from library.slicing_vae import SlicingAutoencoderKL
+
+        sli_vae = SlicingAutoencoderKL(
+            act_fn="silu",
+            block_out_channels=(128, 256, 512, 512),
+            down_block_types=["DownEncoderBlock2D", "DownEncoderBlock2D", "DownEncoderBlock2D", "DownEncoderBlock2D"],
+            in_channels=3,
+            latent_channels=4,
+            layers_per_block=2,
+            norm_num_groups=32,
+            out_channels=3,
+            sample_size=512,
+            up_block_types=["UpDecoderBlock2D", "UpDecoderBlock2D", "UpDecoderBlock2D", "UpDecoderBlock2D"],
+            num_slices=args.vae_slices,
+        )
+        sli_vae.load_state_dict(vae.state_dict())  # vaeのパラメータをコピーする
+        vae = sli_vae
+        del sli_vae
     vae.to(dtype).to(device)
+
     text_encoder.to(dtype).to(device)
     unet.to(dtype).to(device)
     if clip_model is not None:
@@ -2262,6 +2382,8 @@ def main(args):
     if args.network_module:
         networks = []
         network_default_muls = []
+        network_pre_calc = args.network_pre_calc
+
         for i, network_module in enumerate(args.network_module):
             print("import network module:", network_module)
             imported_module = importlib.import_module(network_module)
@@ -2298,11 +2420,11 @@ def main(args):
             if network is None:
                 return
 
-            mergiable = hasattr(network, "merge_to")
-            if args.network_merge and not mergiable:
+            mergeable = network.is_mergeable()
+            if args.network_merge and not mergeable:
                 print("network is not mergiable. ignore merge option.")
 
-            if not args.network_merge or not mergiable:
+            if not args.network_merge or not mergeable:
                 network.apply_to(text_encoder, unet)
                 info = network.load_state_dict(weights_sd, False)  # network.load_weightsを使うようにするとよい
                 print(f"weights are loaded: {info}")
@@ -2311,12 +2433,32 @@ def main(args):
                     network.to(memory_format=torch.channels_last)
                 network.to(dtype).to(device)
 
+                if network_pre_calc:
+                    print("backup original weights")
+                    network.backup_weights()
+
                 networks.append(network)
             else:
                 network.merge_to(text_encoder, unet, weights_sd, dtype, device)
 
     else:
         networks = []
+
+    # upscalerの指定があれば取得する
+    upscaler = None
+    if args.highres_fix_upscaler:
+        print("import upscaler module:", args.highres_fix_upscaler)
+        imported_module = importlib.import_module(args.highres_fix_upscaler)
+
+        us_kwargs = {}
+        if args.highres_fix_upscaler_args:
+            for net_arg in args.highres_fix_upscaler_args.split(";"):
+                key, value = net_arg.split("=")
+                us_kwargs[key] = value
+
+        print("create upscaler")
+        upscaler = imported_module.create_upscaler(**us_kwargs)
+        upscaler.to(dtype).to(device)
 
     # ControlNetの処理
     control_nets: List[ControlNetInfo] = []
@@ -2570,12 +2712,18 @@ def main(args):
 
     # 画像サイズにオプション指定があるときはリサイズする
     if args.W is not None and args.H is not None:
+        # highres fix を考慮に入れる
+        w, h = args.W, args.H
+        if highres_fix:
+            w = int(w * args.highres_fix_scale + 0.5)
+            h = int(h * args.highres_fix_scale + 0.5)
+
         if init_images is not None:
-            print(f"resize img2img source images to {args.W}*{args.H}")
-            init_images = resize_images(init_images, (args.W, args.H))
+            print(f"resize img2img source images to {w}*{h}")
+            init_images = resize_images(init_images, (w, h))
         if mask_images is not None:
-            print(f"resize img2img mask images to {args.W}*{args.H}")
-            mask_images = resize_images(mask_images, (args.W, args.H))
+            print(f"resize img2img mask images to {w}*{h}")
+            mask_images = resize_images(mask_images, (w, h))
 
     regional_network = False
     if networks and mask_images:
@@ -2590,7 +2738,7 @@ def main(args):
                 np_mask = np_mask[:, :, i]
                 size = np_mask.shape
             else:
-                np_mask = np.full(size, 255, dtype=np.uint8)    
+                np_mask = np.full(size, 255, dtype=np.uint8)
             mask = torch.from_numpy(np_mask.astype(np.float32) / 255.0)
             network.set_region(i, i == len(networks) - 1, mask)
         mask_images = None
@@ -2639,6 +2787,8 @@ def main(args):
             # highres_fixの処理
             if highres_fix and not highres_1st:
                 # 1st stageのバッチを作成して呼び出す：サイズを小さくして呼び出す
+                is_1st_latent = upscaler.support_latents() if upscaler else args.highres_fix_latents_upscaling
+
                 print("process 1st stage")
                 batch_1st = []
                 for _, base, ext in batch:
@@ -2647,22 +2797,44 @@ def main(args):
                     width_1st = width_1st - width_1st % 32
                     height_1st = height_1st - height_1st % 32
 
+                    strength_1st = ext.strength if args.highres_fix_strength is None else args.highres_fix_strength
+
                     ext_1st = BatchDataExt(
                         width_1st,
                         height_1st,
                         args.highres_fix_steps,
                         ext.scale,
                         ext.negative_scale,
-                        ext.strength,
+                        strength_1st,
                         ext.network_muls,
                         ext.num_sub_prompts,
                     )
-                    batch_1st.append(BatchData(args.highres_fix_latents_upscaling, base, ext_1st))
+                    batch_1st.append(BatchData(is_1st_latent, base, ext_1st))
                 images_1st = process_batch(batch_1st, True, True)
 
                 # 2nd stageのバッチを作成して以下処理する
                 print("process 2nd stage")
-                if args.highres_fix_latents_upscaling:
+                width_2nd, height_2nd = batch[0].ext.width, batch[0].ext.height
+
+                if upscaler:
+                    # upscalerを使って画像を拡大する
+                    lowreso_imgs = None if is_1st_latent else images_1st
+                    lowreso_latents = None if not is_1st_latent else images_1st
+
+                    # 戻り値はPIL.Image.Imageかtorch.Tensorのlatents
+                    batch_size = len(images_1st)
+                    vae_batch_size = (
+                        batch_size
+                        if args.vae_batch_size is None
+                        else (max(1, int(batch_size * args.vae_batch_size)) if args.vae_batch_size < 1 else args.vae_batch_size)
+                    )
+                    vae_batch_size = int(vae_batch_size)
+                    images_1st = upscaler.upscale(
+                        vae, lowreso_imgs, lowreso_latents, dtype, width_2nd, height_2nd, batch_size, vae_batch_size
+                    )
+
+                elif args.highres_fix_latents_upscaling:
+                    # latentを拡大する
                     org_dtype = images_1st.dtype
                     if images_1st.dtype == torch.bfloat16:
                         images_1st = images_1st.to(torch.float)  # interpolateがbf16をサポートしていない
@@ -2671,10 +2843,12 @@ def main(args):
                     )  # , antialias=True)
                     images_1st = images_1st.to(org_dtype)
 
+                else:
+                    # 画像をLANCZOSで拡大する
+                    images_1st = [image.resize((width_2nd, height_2nd), resample=PIL.Image.LANCZOS) for image in images_1st]
+
                 batch_2nd = []
                 for i, (bd, image) in enumerate(zip(batch, images_1st)):
-                    if not args.highres_fix_latents_upscaling:
-                        image = image.resize((bd.ext.width, bd.ext.height), resample=PIL.Image.LANCZOS)  # img2imgとして設定
                     bd_2nd = BatchData(False, BatchDataBase(*bd.base[0:3], bd.base.seed + 1, image, None, *bd.base[6:]), bd.ext)
                     batch_2nd.append(bd_2nd)
                 batch = batch_2nd
@@ -2775,11 +2949,19 @@ def main(args):
 
             # generate
             if networks:
+                # 追加ネットワークの処理
                 shared = {}
                 for n, m in zip(networks, network_muls if network_muls else network_default_muls):
                     n.set_multiplier(m)
                     if regional_network:
                         n.set_current_generation(batch_size, num_sub_prompts, width, height, shared)
+
+                if not regional_network and network_pre_calc:
+                    for n in networks:
+                        n.restore_weights()
+                    for n in networks:
+                        n.pre_calculation()
+                    print("pre-calculation... done")
 
             images = pipe(
                 prompts,
@@ -2978,14 +3160,16 @@ def main(args):
                 if init_images is not None:
                     init_image = init_images[global_step % len(init_images)]
 
+                    # img2imgの場合は、基本的に元画像のサイズで生成する。highres fixの場合はargs.W, args.Hとscaleに従いリサイズ済みなので無視する
                     # 32単位に丸めたやつにresizeされるので踏襲する
-                    width, height = init_image.size
-                    width = width - width % 32
-                    height = height - height % 32
-                    if width != init_image.size[0] or height != init_image.size[1]:
-                        print(
-                            f"img2img image size is not divisible by 32 so aspect ratio is changed / img2imgの画像サイズが32で割り切れないためリサイズされます。画像が歪みます"
-                        )
+                    if not highres_fix:
+                        width, height = init_image.size
+                        width = width - width % 32
+                        height = height - height % 32
+                        if width != init_image.size[0] or height != init_image.size[1]:
+                            print(
+                                f"img2img image size is not divisible by 32 so aspect ratio is changed / img2imgの画像サイズが32で割り切れないためリサイズされます。画像が歪みます"
+                            )
 
                 if mask_images is not None:
                     mask_image = mask_images[global_step % len(mask_images)]
@@ -3087,6 +3271,12 @@ def setup_parser() -> argparse.ArgumentParser:
         default=None,
         help="batch size for VAE, < 1.0 for ratio / VAE処理時のバッチサイズ、1未満の値の場合は通常バッチサイズの比率",
     )
+    parser.add_argument(
+        "--vae_slices",
+        type=int,
+        default=None,
+        help="number of slices to split image into for VAE to reduce VRAM usage, None for no splitting (default), slower if specified. 16 or 32 recommended / VAE処理時にVRAM使用量削減のため画像を分割するスライス数、Noneの場合は分割しない（デフォルト）、指定すると遅くなる。16か32程度を推奨",
+    )
     parser.add_argument("--steps", type=int, default=50, help="number of ddim sampling steps / サンプリングステップ数")
     parser.add_argument(
         "--sampler",
@@ -3165,6 +3355,9 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument("--network_show_meta", action="store_true", help="show metadata of network model / ネットワークモデルのメタデータを表示する")
     parser.add_argument("--network_merge", action="store_true", help="merge network weights to original model / ネットワークの重みをマージする")
     parser.add_argument(
+        "--network_pre_calc", action="store_true", help="pre-calculate network for generation / ネットワークのあらかじめ計算して生成する"
+    )
+    parser.add_argument(
         "--textual_inversion_embeddings",
         type=str,
         default=None,
@@ -3222,6 +3415,12 @@ def setup_parser() -> argparse.ArgumentParser:
         "--highres_fix_steps", type=int, default=28, help="1st stage steps for highres fix / highres fixの最初のステージのステップ数"
     )
     parser.add_argument(
+        "--highres_fix_strength",
+        type=float,
+        default=None,
+        help="1st stage img2img strength for highres fix / highres fixの最初のステージのimg2img時のstrength、省略時はstrengthと同じ",
+    )
+    parser.add_argument(
         "--highres_fix_save_1st", action="store_true", help="save 1st stage images for highres fix / highres fixの最初のステージの画像を保存する"
     )
     parser.add_argument(
@@ -3229,6 +3428,16 @@ def setup_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="use latents upscaling for highres fix / highres fixでlatentで拡大する",
     )
+    parser.add_argument(
+        "--highres_fix_upscaler", type=str, default=None, help="upscaler module for highres fix / highres fixで使うupscalerのモジュール名"
+    )
+    parser.add_argument(
+        "--highres_fix_upscaler_args",
+        type=str,
+        default=None,
+        help="additional argmuments for upscaler (key=value) / upscalerへの追加の引数",
+    )
+
     parser.add_argument(
         "--negative_scale", type=float, default=None, help="set another guidance scale for negative prompt / ネガティブプロンプトのscaleを指定する"
     )
