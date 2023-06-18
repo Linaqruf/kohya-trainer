@@ -19,14 +19,14 @@ timm==0.6.12
 fairscale==0.4.13
 # for WD14 captioning
 tensorflow==2.12.0
-huggingface-hub==0.13.4
+huggingface-hub==0.15.1
 # for kohya trainer colab
-gallery-dl==1.25.2
+gallery-dl==1.25.6
 gdown==4.7.1
 imjoy-elfinder==0.1.61
-dadaptation==1.5
+dadaptation==3.1
 lion-pytorch==0.0.6
 # for network module
-lycoris-lora==0.1.5-dev4
+lycoris-lora==0.1.6
 # for kohya_ss library
 .
