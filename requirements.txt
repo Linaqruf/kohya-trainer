@@ -1,5 +1,5 @@
 accelerate==0.15.0
-transformers==4.26.0
+transformers==4.27.1
 ftfy==6.1.1
 albumentations==1.3.0
 opencv-python==4.7.0.68
@@ -7,29 +7,26 @@ einops==0.6.0
 diffusers[torch]==0.10.2
 pytorch-lightning==1.9.0
 bitsandbytes==0.35.0
-tensorboard==2.12.0
+tensorboard==2.12.2
 safetensors==0.2.6
-# gradio==3.16.2
-# altair==4.2.2
-# easygui==0.98.3
+gradio==3.22.1
 toml==0.10.2
 voluptuous==0.13.1
+wandb==0.15.0
 # for BLIP captioning
 requests==2.27.1
 timm==0.6.12
 fairscale==0.4.13
 # for WD14 captioning
-# tensorflow<2.11
 tensorflow==2.12.0
 huggingface-hub==0.13.4
 # for kohya trainer colab
-gallery-dl==1.25.1
+gallery-dl==1.25.2
 gdown==4.7.1
 imjoy-elfinder==0.1.61
 dadaptation==1.5
 lion-pytorch==0.0.6
 # for network module
-# locon==0.0.4
-lycoris-lora==0.1.4
+lycoris-lora==0.1.5-dev4
 # for kohya_ss library
 .
