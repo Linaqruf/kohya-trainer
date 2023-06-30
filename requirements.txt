@@ -19,6 +19,6 @@ gdown==4.7.1
 imjoy-elfinder==0.1.61
 dadaptation==3.1
 lion-pytorch==0.1.2
-lycoris-lora==0.7.2
+lycoris-lora==1.8.0.dev1
 # for kohya_ss library
 -e .
