@@ -1,5 +1,5 @@
 accelerate==0.19.0
-salesforce-lavis==1.0.2
+salesforce-lavis==1.0.0
 transformers==4.30.2
 diffusers[torch]==0.17.1
 ftfy==6.1.1
