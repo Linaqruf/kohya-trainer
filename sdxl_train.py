@@ -290,8 +290,9 @@ def train(args):
             args, accelerator, (tokenizer1, tokenizer2), (text_encoder1, text_encoder2), train_dataloader, None
         )
         accelerator.wait_for_everyone()
-        text_encoder1.to("cpu")
-        text_encoder2.to("cpu")
+        # Text Encoder doesn't work on CPU with fp16
+        text_encoder1.to("cpu", dtype=torch.float32)
+        text_encoder2.to("cpu", dtype=torch.float32)
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
     else:
@@ -416,20 +417,9 @@ def train(args):
                 vector_embedding = torch.cat([pool2, embs], dim=1).to(weight_dtype)
                 text_embedding = torch.cat([encoder_hidden_states1, encoder_hidden_states2], dim=2).to(weight_dtype)
 
-                # Sample noise that we'll add to the latents
-                noise = torch.randn_like(latents, device=latents.device)
-                if args.noise_offset:
-                    noise = apply_noise_offset(latents, noise, args.noise_offset, args.adaptive_noise_scale)
-                elif args.multires_noise_iterations:
-                    noise = pyramid_noise_like(noise, latents.device, args.multires_noise_iterations, args.multires_noise_discount)
-
-                # Sample a random timestep for each image
-                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (b_size,), device=latents.device)
-                timesteps = timesteps.long()
-
-                # Add noise to the latents according to the noise magnitude at each timestep
-                # (this is the forward diffusion process)
-                noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
+                # Sample noise, sample a random timestep for each image, and add noise to the latents,
+                # with noise offset and/or multires noise if specified
+                noise, noisy_latents, timesteps = train_util.get_noise_noisy_latents_and_timesteps(args, noise_scheduler, latents)
 
                 noisy_latents = noisy_latents.to(weight_dtype)  # TODO check why noisy_latents is not weight_dtype
 
@@ -467,19 +457,17 @@ def train(args):
                 progress_bar.update(1)
                 global_step += 1
 
-                # sdxl_train_util.sample_images(
-                #     accelerator,
-                #     args,
-                #     None,
-                #     global_step,
-                #     accelerator.device,
-                #     vae,
-                #     tokenizer1,
-                #     tokenizer2,
-                #     text_encoder1,
-                #     text_encoder2,
-                #     unet,
-                # )
+                sdxl_train_util.sample_images(
+                    accelerator,
+                    args,
+                    None,
+                    global_step,
+                    accelerator.device,
+                    vae,
+                    [tokenizer1, tokenizer2],
+                    [text_encoder1, text_encoder2],
+                    unet,
+                )
 
                 # 指定ステップごとにモデルを保存
                 if args.save_every_n_steps is not None and global_step % args.save_every_n_steps == 0:
@@ -553,7 +541,17 @@ def train(args):
                     ckpt_info,
                 )
 
-        # train_util.sample_images(accelerator, args, epoch + 1, global_step, accelerator.device, vae, tokenizer, text_encoder, unet)
+        sdxl_train_util.sample_images(
+            accelerator,
+            args,
+            epoch + 1,
+            global_step,
+            accelerator.device,
+            vae,
+            [tokenizer1, tokenizer2],
+            [text_encoder1, text_encoder2],
+            unet,
+        )
 
     is_main_process = accelerator.is_main_process
     # if is_main_process:
