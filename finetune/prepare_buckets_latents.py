@@ -135,7 +135,7 @@ def main(args):
                         train_util.save_latents_to_disk(npz_file_name, latent, original_size, crop_left_top)
                 else:
                     # remove existing flipped npz
-                    for image_key, _ in bucket:
+                    for image_key, _, _, _ in bucket:
                         npz_file_name = (
                             get_npz_filename_wo_ext(args.train_data_dir, image_key, args.full_path, True, args.recursive) + ".npz"
                         )
