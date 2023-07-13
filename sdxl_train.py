@@ -171,7 +171,7 @@ def train(args):
         # set_diffusers_xformers_flag(unet, True)
         set_diffusers_xformers_flag(vae, True)
     else:
-        # Windows版のxformersはfloatで学習できなかったりxformersを使わない設定も可能にしておく必要がある
+        # Windows版のxformersはfloatで学習できなかったりするのでxformersを使わない設定も可能にしておく必要がある
         accelerator.print("Disable Diffusers' xformers")
         train_util.replace_unet_modules(unet, args.mem_eff_attn, args.xformers, args.sdpa)
         vae.set_use_memory_efficient_attention_xformers(args.xformers)
@@ -204,11 +204,24 @@ def train(args):
             text_encoder2.gradient_checkpointing_enable()
         training_models.append(text_encoder1)
         training_models.append(text_encoder2)
+
+        text_encoder1_cache = None
+        text_encoder2_cache = None
+
+        # set require_grad=True later
     else:
         text_encoder1.requires_grad_(False)
         text_encoder2.requires_grad_(False)
         text_encoder1.eval()
         text_encoder2.eval()
+
+        # TextEncoderの出力をキャッシュする
+        if args.cache_text_encoder_outputs:
+            # Text Encodes are eval and no grad
+            text_encoder1_cache, text_encoder2_cache = sdxl_train_util.cache_text_encoder_outputs(
+                args, accelerator, (tokenizer1, tokenizer2), (text_encoder1, text_encoder2), train_dataset_group, None
+            )
+            accelerator.wait_for_everyone()
 
     if not cache_latents:
         vae.requires_grad_(False)
@@ -258,12 +271,20 @@ def train(args):
     # lr schedulerを用意する
     lr_scheduler = train_util.get_scheduler_fix(args, optimizer, accelerator.num_processes)
 
-    # 実験的機能：勾配も含めたfp16学習を行う　モデル全体をfp16にする
+    # 実験的機能：勾配も含めたfp16/bf16学習を行う　モデル全体をfp16にする
     if args.full_fp16:
         assert (
             args.mixed_precision == "fp16"
         ), "full_fp16 requires mixed precision='fp16' / full_fp16を使う場合はmixed_precision='fp16'を指定してください。"
         accelerator.print("enable full fp16 training.")
+        unet.to(weight_dtype)
+        text_encoder1.to(weight_dtype)
+        text_encoder2.to(weight_dtype)
+    elif args.full_bf16:
+        assert (
+            args.mixed_precision == "bf16"
+        ), "full_bf16 requires mixed precision='bf16' / full_bf16を使う場合はmixed_precision='bf16'を指定してください。"
+        accelerator.print("enable full bf16 training.")
         unet.to(weight_dtype)
         text_encoder1.to(weight_dtype)
         text_encoder2.to(weight_dtype)
@@ -281,23 +302,16 @@ def train(args):
         (unet,) = train_util.transform_models_if_DDP([unet])
         text_encoder1.to(weight_dtype)
         text_encoder2.to(weight_dtype)
-        text_encoder1.eval()
-        text_encoder2.eval()
 
-    # TextEncoderの出力をキャッシュする
+    # TextEncoderの出力をキャッシュするときにはCPUへ移動する
     if args.cache_text_encoder_outputs:
-        text_encoder1_cache, text_encoder2_cache = sdxl_train_util.cache_text_encoder_outputs(
-            args, accelerator, (tokenizer1, tokenizer2), (text_encoder1, text_encoder2), train_dataloader, None
-        )
-        accelerator.wait_for_everyone()
-        # Text Encoder doesn't work on CPU with fp16
+        # move Text Encoders for sampling images. Text Encoder doesn't work on CPU with fp16
         text_encoder1.to("cpu", dtype=torch.float32)
         text_encoder2.to("cpu", dtype=torch.float32)
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
     else:
-        text_encoder1_cache = None
-        text_encoder2_cache = None
+        # make sure Text Encoders are on GPU
         text_encoder1.to(accelerator.device)
         text_encoder2.to(accelerator.device)
 
@@ -348,8 +362,7 @@ def train(args):
         loss_total = 0
         for step, batch in enumerate(train_dataloader):
             current_step.value = global_step
-            # with accelerator.accumulate(training_models[0]):  # 複数モデルに対応していない模様だがとりあえずこうしておく
-            if True:
+            with accelerator.accumulate(training_models[0]):  # 複数モデルに対応していない模様だがとりあえずこうしておく
                 if "latents" in batch and batch["latents"] is not None:
                     latents = batch["latents"].to(accelerator.device).to(dtype=weight_dtype)
                 else:
