@@ -3,11 +3,13 @@ import gc
 import math
 import os
 from multiprocessing import Value
+import toml
 
 from tqdm import tqdm
 import torch
 from accelerate.utils import set_seed
 from diffusers import DDPMScheduler
+from transformers import CLIPTokenizer
 from library import model_util
 
 import library.train_util as train_util
@@ -92,7 +94,7 @@ class TextualInversionTrainer:
         tokenizer = train_util.load_tokenizer(args)
         return tokenizer
 
-    def assert_token_string(self, token_string, tokenizers):
+    def assert_token_string(self, token_string, tokenizers: CLIPTokenizer):
         pass
 
     def get_text_cond(self, args, accelerator, batch, tokenizers, text_encoders, weight_dtype):
@@ -200,19 +202,13 @@ class TextualInversionTrainer:
             init_token_ids_list = [None] * len(tokenizers)
 
         # tokenizerに新しい単語を追加する。追加する単語の数はnum_vectors_per_token
+        # token_stringが hoge の場合、"hoge", "hoge1", "hoge2", ... が追加される
         # add new word to tokenizer, count is num_vectors_per_token
-
-        # token_stringが hoge の場合、"hoge", "hogea", "hogeb", ... が追加される
-        # 当初は "hoge", "hoge1", "hoge2", ... としていたが、open clipのtokenizerは数字を含む単語を分割してしまうため(;^ω^)、a, b, ... とした
-
-        # if token_string is hoge, "hoge", "hogea", "hogeb", ... are added
-        # originally, "hoge", "hoge1", "hoge2", ... were used, but open clip's tokenizer splits words including numbers (;^ω^), so a, b, ... are used
+        # if token_string is hoge, "hoge", "hoge1", "hoge2", ... are added
 
         self.assert_token_string(args.token_string, tokenizers)
 
-        token_strings = [args.token_string] + [
-            f"{args.token_string}{chr(ord('a') + i)}" for i in range(args.num_vectors_per_token - 1)
-        ]
+        token_strings = [args.token_string] + [f"{args.token_string}{i+1}" for i in range(args.num_vectors_per_token - 1)]
         token_ids_list = []
         token_embeds_list = []
         for i, (tokenizer, text_encoder, init_token_ids) in enumerate(zip(tokenizers, text_encoders, init_token_ids_list)):
@@ -348,7 +344,8 @@ class TextualInversionTrainer:
 
         # モデルに xformers とか memory efficient attention を組み込む
         train_util.replace_unet_modules(unet, args.mem_eff_attn, args.xformers, args.sdpa)
-        vae.set_use_memory_efficient_attention_xformers(args.xformers)
+        if torch.__version__ >= "2.0.0": # PyTorch 2.0.0 以上対応のxformersなら以下が使える
+            vae.set_use_memory_efficient_attention_xformers(args.xformers)
 
         # 学習を準備する
         if cache_latents:
@@ -492,9 +489,14 @@ class TextualInversionTrainer:
             beta_start=0.00085, beta_end=0.012, beta_schedule="scaled_linear", num_train_timesteps=1000, clip_sample=False
         )
         prepare_scheduler_for_custom_training(noise_scheduler, accelerator.device)
+        if args.zero_terminal_snr:
+            custom_train_functions.fix_noise_scheduler_betas_for_zero_terminal_snr(noise_scheduler)
 
         if accelerator.is_main_process:
-            accelerator.init_trackers("textual_inversion" if args.log_tracker_name is None else args.log_tracker_name)
+            init_kwargs = {}
+            if args.log_tracker_config is not None:
+                init_kwargs = toml.load(args.log_tracker_config)
+            accelerator.init_trackers("textual_inversion" if args.log_tracker_name is None else args.log_tracker_name, init_kwargs=init_kwargs)
 
         # function for saving/removing
         def save_model(ckpt_name, embs_list, steps, epoch_no, force_sync_upload=False):

@@ -11,7 +11,9 @@ bitsandbytes==0.35.0
 safetensors==0.3.1
 toml==0.10.2
 voluptuous==0.13.1
-huggingface-hub==0.14.1
+huggingface-hub==0.15.1
+# for loading Diffusers' SDXL
+invisible-watermark==0.2.0 
 open-clip-torch==2.20.0
 # for kohya trainer
 gallery-dl==1.25.6
@@ -19,6 +21,6 @@ gdown==4.7.1
 imjoy-elfinder==0.1.61
 dadaptation==3.1
 lion-pytorch==0.1.2
-lycoris-lora==1.8.0.dev1
+lycoris-lora==1.8.1.dev3
 # for kohya_ss library
 -e .
