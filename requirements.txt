@@ -11,6 +11,7 @@ bitsandbytes==0.35.0
 safetensors==0.3.1
 toml==0.10.2
 voluptuous==0.13.1
+wandb==0.15.7
 huggingface-hub==0.15.1
 # for loading Diffusers' SDXL
 invisible-watermark==0.2.0 
