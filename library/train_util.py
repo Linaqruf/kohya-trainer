@@ -2741,7 +2741,7 @@ def prepare_accelerator(args: argparse.Namespace):
         log_with=log_with,
         logging_dir=logging_dir,
     )
-    accelerator.init_trackers(project_name="LoRA_" + args.output_name)
+    accelerator.init_trackers(project_name="Kohya-ss_" + args.output_name)
 
     # accelerateの互換性問題を解決する
     accelerator_0_15 = True
