@@ -2255,8 +2255,8 @@ def read_config_from_file(args: argparse.Namespace, parser: argparse.ArgumentPar
 
         # remove unnecessary keys
         for key in ["config_file", "output_config", "wandb_api_key"]:
-            if key in args_dict:
-                del args_dict[key]
+            if key in args:
+                del args[key]
 
         # convert args to dictionary
         args_dict = vars(args)
@@ -2733,6 +2733,7 @@ def prepare_accelerator(args: argparse.Namespace):
                 os.environ["WANDB_DIR"] = logging_dir
             if args.wandb_api_key is not None:
                 wandb.login(key=args.wandb_api_key)
+                
 
     accelerator = Accelerator(
         gradient_accumulation_steps=args.gradient_accumulation_steps,
@@ -2740,6 +2741,7 @@ def prepare_accelerator(args: argparse.Namespace):
         log_with=log_with,
         logging_dir=logging_dir,
     )
+    accelerator.init_trackers(project_name="LoRA_" + args.output_name)
 
     # accelerateの互換性問題を解決する
     accelerator_0_15 = True
