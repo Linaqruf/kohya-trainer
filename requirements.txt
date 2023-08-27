@@ -15,7 +15,7 @@ safetensors==0.2.6
 toml==0.10.2
 voluptuous==0.13.1
 # for BLIP captioning
-requests==2.27.1
+requests==2.31.0
 timm==0.6.12
 fairscale==0.4.13
 # for WD14 captioning
