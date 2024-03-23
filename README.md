@@ -1,5 +1,5 @@
  
-# Kohya Trainer Act 1: End of Journey (23/03/2024)
+# Kohya Trainer: End of Journey (23/03/2024)
 ### Sorry, but this is the end. Colab is dead, and we killed it. Thank you for using Kohya Trainer since the first time it launched. I really appreciate it. This repository will be resting until I have time to maintain it again. Actually, the problem is not time, but rather that I haven't been using Colab for a year now after migrating to other Cloud GPU Service. The reason is clear: library compatibility issues with every update have made it exhausting to maintain. Also, some of my notebooks have been blacklisted for free-tier users, even though I got nothing.
 
 ### This repository will also be archived: https://github.com/Linaqruf/sd-notebook-collection
