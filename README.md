@@ -1,18 +1,3 @@
- 
-# Kohya Trainer: End of Journey (23/03/2024)
-### Sorry, but this is the end. Colab is dead, and we killed it. Thank you for using Kohya Trainer since the first time it launched. I really appreciate it. This repository will be resting until I have time to maintain it again. Actually, the problem is not time, but rather that I haven't been using Colab for a year now after migrating to other Cloud GPU Service. The reason is clear: library compatibility issues with every update have made it exhausting to maintain. Also, some of my notebooks have been blacklisted for free-tier users, even though I got nothing.
-
-### This repository will also be archived: https://github.com/Linaqruf/sd-notebook-collection
-
-### For an alternative, I recommend using this: https://github.com/hollowstrawberry/kohya-colab
-
-### If you want to migrate to other Cloud GPU Service too, I recommend using this: https://github.com/cagliostrolab/sd-scripts/blob/main/notebook
-
-### And no, I'm not supporting SD 1.5 and SD 2.1 Anymore.
-
-### Linaqruf
-
-___
 # Kohya Trainer
 [![GitHub Repo stars](https://img.shields.io/github/stars/Linaqruf/kohya-trainer?style=social)](https://github.com/Linaqruf/kohya-trainer/)</a> [![ko-fi](https://img.shields.io/badge/Support%20me%20on%20Ko--fi-F16061?logo=ko-fi&logoColor=white&style=flat)](https://ko-fi.com/linaqruf) <a href="https://saweria.co/linaqruf"><img alt="Saweria" src="https://img.shields.io/badge/Saweria-7B3F00?style=flat&logo=ko-fi&logoColor=white"/></a>
 
