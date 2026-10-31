@@ -1,0 +1,54 @@
+# Stable Diffusion 1.5 LoRA preset. Keys are sd-scripts argument names.
+# SD1.5 is small enough to train the text encoder too, so captions can shuffle.
+# The high learning rate, cosine restarts and the shorter run (about 300 images
+# per epoch) go together. Plain cosine over a long run overtrains.
+
+[network]
+network_module = "networks.lora"
+network_dim = 32
+network_alpha = 16
+
+[optimizer]
+optimizer_type = "AdamW8bit"
+learning_rate = 5e-4
+unet_lr = 5e-4
+text_encoder_lr = 1e-4
+lr_scheduler = "cosine_with_restarts"
+lr_scheduler_num_cycles = 3
+# Below 1, a share of all steps.
+lr_warmup_steps = 0.05
+max_grad_norm = 1.0
+
+[model]
+# Anime SD1.5 checkpoints are trained and sampled at clip skip 2.
+clip_skip = 2
+
+[precision_memory]
+mixed_precision = "fp16"
+save_precision = "fp16"
+gradient_checkpointing = true
+gradient_accumulation_steps = 1
+sdpa = true
+cache_latents = true
+cache_latents_to_disk = true
+max_data_loader_n_workers = 2
+persistent_data_loader_workers = true
+
+[loss]
+min_snr_gamma = 5
+
+[run]
+max_train_epochs = 10
+seed = 42
+max_token_length = 225
+
+[saving]
+save_model_as = "safetensors"
+save_every_n_epochs = 1
+# Saves the training state each epoch, so a stopped session can resume. Only the newest is kept.
+save_state = true
+save_last_n_epochs_state = 1
+
+[sampling]
+sample_every_n_epochs = 1
+sample_sampler = "euler_a"
