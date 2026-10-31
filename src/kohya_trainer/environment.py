@@ -63,12 +63,15 @@ def get_secret(name: str) -> str | None:
             if value:
                 return value
         except Exception as error:  # noqa: BLE001 - any failure here falls back to the environment
-            # A missing secret is normal. A secret without notebook access is a missed step.
-            if type(error).__name__ == "NotebookAccessError":
+            # A missing secret is normal. Colab asks for access to a secret the notebook may not read
+            # yet: Cancel raises NotebookAccessError, and no answer in about 10 seconds raises
+            # TimeoutException. The dialog can open near the end of a long cell, while no one watches.
+            # TimeoutException also comes when no Colab UI is attached.
+            if type(error).__name__ in ("NotebookAccessError", "TimeoutException"):
                 print(
-                    f"note: Colab Secrets has {name}, but this notebook has no access to it. If you need it here, "
-                    f"open Colab Secrets (the key icon on the left), turn on Notebook access for {name}, then run "
-                    "this cell again."
+                    f"note: this notebook could not read {name} from Colab Secrets. If you need it here, choose "
+                    "Grant access when Colab asks, or open Colab Secrets (the key icon on the left) and turn on "
+                    f"Notebook access for {name}. Then run this cell again."
                 )
     return os.environ.get(name) or None
 

@@ -71,7 +71,8 @@ All logic lives in the package. Notebook cells only read the form and call it.
   the default branch.
   `canary.yml` runs the canary weekly on a CPU-only runner: it installs the
   stack, imports every training script, builds a dry-run plan for every model
-  and checks the Hub files. It opens an issue when it breaks.
+  and checks the Hub files. It opens an issue when it breaks. In a fork or another
+  copy, a second job checks the public default branch, which the notebooks clone.
 
 ## Rules
 

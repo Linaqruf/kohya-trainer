@@ -173,7 +173,13 @@ class SecretNotFoundError(Exception):
     """Named as in google.colab.userdata."""
 
 
-@pytest.mark.parametrize(("error", "noted"), [(NotebookAccessError, True), (SecretNotFoundError, False)])
+class TimeoutException(Exception):
+    """Named as in google.colab.userdata: no answer to Colab's access dialog in time."""
+
+
+@pytest.mark.parametrize(
+    ("error", "noted"), [(NotebookAccessError, True), (TimeoutException, True), (SecretNotFoundError, False)]
+)
 def test_get_secret_names_a_secret_the_notebook_may_not_read(monkeypatch, capsys, error, noted):
     def get(key):
         raise error(key)
@@ -187,6 +193,8 @@ def test_get_secret_names_a_secret_the_notebook_may_not_read(monkeypatch, capsys
     assert environment.get_secret("HF_TOKEN") == "unit-test-value"
     out = capsys.readouterr().out
     assert ("turn on Notebook access for HF_TOKEN" in out) is noted
+    assert ("Grant access when Colab asks" in out) is noted
+    assert ("run this cell again" in out) is noted
     assert "unit-test-value" not in out
 
 
