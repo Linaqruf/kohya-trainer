@@ -68,27 +68,78 @@ jobs:
       - name: smoke — backend install, entrypoint imports, dry-run plans, Hub artifacts
         run: python /tmp/kohya-trainer/scripts/canary_smoke.py
 
+  public-path:
+    # The notebooks clone the public repository's default branch. Outside that repository this job
+    # checks it, and inside it the job above does. Skipped on pull requests.
+    if: github.event_name != 'pull_request' && github.repository != 'Linaqruf/kohya-trainer'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: colab-like system libraries (opencv needs libGL; Colab ships it)
+        run: |
+          for attempt in 1 2 3; do
+            if sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1 libglib2.0-0; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then exit 1; fi
+            sleep 10
+          done
+      - name: preinstalled torch (Colab ships the latest stable)
+        run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+      - name: user bootstrap — the setup cell, from the public repository
+        run: |
+          git clone --depth=1 https://github.com/Linaqruf/kohya-trainer /tmp/kohya-trainer
+          git -C /tmp/kohya-trainer submodule update --init --depth=1
+          pip install -e /tmp/kohya-trainer
+      - name: smoke — the public branch's own canary script
+        run: python /tmp/kohya-trainer/scripts/canary_smoke.py
+
   report-drift:
-    # Runs only when a scheduled run fails. It runs no repository code.
-    needs: colab-drift
-    if: failure() && github.event_name == 'schedule'
+    # Runs only when a scheduled run fails or does not finish. It runs no repository code.
+    # A job that reaches timeout-minutes counts as cancelled, not failed.
+    needs: [colab-drift, public-path]
+    if: >-
+      always() && github.event_name == 'schedule' &&
+      (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
     runs-on: ubuntu-latest
     permissions:
       issues: write
     steps:
       - name: surface drift as an issue
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          CHECK_RESULT: ${{ needs.colab-drift.result }}
+          PUBLIC_RESULT: ${{ needs.public-path.result }}
         run: |
           gh label create canary --repo "$GITHUB_REPOSITORY" --color D93F0B \
             --description "Weekly canary failures" --force
           run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          results="colab-drift: $CHECK_RESULT, public-path: $PUBLIC_RESULT"
+          # The branch the notebooks clone is checked by public-path, or by colab-drift where public-path skips.
+          if [ "$PUBLIC_RESULT" = failure ] || { [ "$PUBLIC_RESULT" = skipped ] && [ "$CHECK_RESULT" = failure ]; }; then
+            title="Canary: the Colab user path is broken"
+            impact="A new Colab user probably cannot train right now."
+          elif [ "$PUBLIC_RESULT" = success ]; then
+            if [ "$CHECK_RESULT" = failure ]; then
+              title="Canary: the default branch fails the weekly check"
+            else
+              title="Canary: the default branch did not finish the weekly check"
+            fi
+            impact="The branch that the notebooks clone still passes."
+          else
+            title="Canary: the weekly check did not finish"
+            impact="A job timed out or was cancelled, so this run cannot tell whether users are affected."
+          fi
           open_issue=$(gh issue list --repo "$GITHUB_REPOSITORY" --label canary --state open \
             --json number --jq '.[0].number // empty')
           if [ -n "$open_issue" ]; then
-            gh issue comment "$open_issue" --repo "$GITHUB_REPOSITORY" --body "Still failing: $run_url"
+            gh issue comment "$open_issue" --repo "$GITHUB_REPOSITORY" \
+              --body "Still failing ($results). $impact Run: $run_url"
           else
-            gh issue create --repo "$GITHUB_REPOSITORY" --label canary \
-              --title "Canary: the Colab user path is broken" \
-              --body "The weekly canary failed. A new Colab user probably cannot train right now. Run: $run_url"
+            gh issue create --repo "$GITHUB_REPOSITORY" --label canary --title "$title" \
+              --body "The weekly canary failed ($results). $impact Run: $run_url"
           fi

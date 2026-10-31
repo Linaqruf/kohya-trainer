@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import huggingface_hub
@@ -10,7 +14,7 @@ import pytest
 import yaml
 from huggingface_hub.errors import GatedRepoError
 
-from kohya_trainer import config, dataset, registry, tagging, train
+from kohya_trainer import config, dataset, pins, registry, tagging, train
 
 from conftest import ROOT, SD_SCRIPTS, needs_submodule
 
@@ -102,14 +106,119 @@ def test_canary_files_issues_only_for_scheduled_runs():
     workflow = _canary_workflow()
     # The check job runs a pull request's own code, so it gets no write access.
     assert workflow["permissions"] == {"contents": "read"}
-    smoke_steps = workflow["jobs"]["colab-drift"]["steps"]
-    assert not [step for step in smoke_steps if "gh issue" in step.get("run", "")]
+    for job in ("colab-drift", "public-path"):
+        assert not [step for step in workflow["jobs"][job]["steps"] if "gh issue" in step.get("run", "")]
+        # A job that may fail quietly never reports a failure, so no issue would open.
+        assert "continue-on-error" not in workflow["jobs"][job]
     report = workflow["jobs"]["report-drift"]
-    assert report["needs"] == "colab-drift"
-    assert report["if"] == "failure() && github.event_name == 'schedule'"
+    assert report["needs"] == ["colab-drift", "public-path"]
+    assert report["if"] == (
+        "always() && github.event_name == 'schedule' && "
+        "(contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))"
+    )
     assert report["permissions"] == {"issues": "write"}
     assert not [step for step in report["steps"] if "uses" in step], "the report job must not check out code"
     assert any("gh issue create" in step.get("run", "") for step in report["steps"])
+
+
+def _report_step() -> dict:
+    steps = _canary_workflow()["jobs"]["report-drift"]["steps"]
+    return next(step for step in steps if "gh issue create" in step.get("run", ""))
+
+
+def test_canary_issue_gets_both_job_results():
+    step = _report_step()
+    assert step["env"]["CHECK_RESULT"] == "${{ needs.colab-drift.result }}"
+    assert step["env"]["PUBLIC_RESULT"] == "${{ needs.public-path.result }}"
+    assert step["shell"] == "bash"  # bash --noprofile --norc -eo pipefail, as the test below runs it
+
+
+BROKEN = ("--title Canary: the Colab user path is broken", "A new Colab user probably cannot train right now.")
+DEFAULT_BRANCH = (
+    "--title Canary: the default branch fails the weekly check",
+    "The branch that the notebooks clone still passes.",
+)
+UNFINISHED = ("--title Canary: the weekly check did not finish", "this run cannot tell whether users are affected.")
+
+
+@pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None, reason="runs the step under bash")
+@pytest.mark.parametrize(
+    ("check", "public", "open_issue", "expected"),
+    [
+        ("success", "failure", "", BROKEN),
+        ("failure", "success", "", DEFAULT_BRANCH),
+        ("failure", "skipped", "", BROKEN),  # the public repository
+        ("failure", "failure", "", BROKEN),
+        ("cancelled", "failure", "", BROKEN),
+        ("failure", "cancelled", "", UNFINISHED),  # a job that times out counts as cancelled
+        ("success", "cancelled", "", UNFINISHED),
+        ("cancelled", "skipped", "", UNFINISHED),
+        ("cancelled", "success", "", ("--title Canary: the default branch did not finish", DEFAULT_BRANCH[1])),
+        ("failure", "success", "7", ("Still failing (colab-drift: failure, public-path: success).", DEFAULT_BRANCH[1])),
+    ],
+)
+def test_canary_issue_says_which_job_failed(tmp_path, check, public, open_issue, expected):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "gh.log"
+    fake_gh = bin_dir / "gh"
+    fake_gh.write_text(
+        '#!/usr/bin/env bash\nprintf \'%s\\n\' "$*" >> "$GH_LOG"\n'
+        'if [ "$1 $2" = "issue list" ]; then printf \'%s\' "$OPEN_ISSUE"; fi\n',
+        encoding="utf-8",
+        newline="\n",
+    )
+    fake_gh.chmod(0o755)
+    env = {
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "GH_LOG": str(log),
+        "OPEN_ISSUE": open_issue,
+        "GITHUB_REPOSITORY": "owner/repo",
+        "GITHUB_SERVER_URL": "https://github.com",
+        "GITHUB_RUN_ID": "1",
+        "CHECK_RESULT": check,
+        "PUBLIC_RESULT": public,
+    }
+    # The real gh must never run here: it would act on GitHub.
+    assert shutil.which("gh", path=env["PATH"]) == str(fake_gh)
+    # GitHub runs a step with "shell: bash" as: bash --noprofile --norc -eo pipefail
+    script = _report_step()["run"]
+    subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script], env=env, check=True)
+    calls = log.read_text(encoding="utf-8")
+    title_or_comment, impact = expected
+    assert title_or_comment in calls
+    assert impact in calls
+    assert f"colab-drift: {check}, public-path: {public}" in calls
+
+
+def test_public_path_sets_up_what_the_notebooks_clone():
+    jobs = _canary_workflow()["jobs"]
+    public = jobs["public-path"]
+    repository = pins.REPO_URL.removeprefix("https://github.com/")
+    assert public["if"] == f"github.event_name != 'pull_request' && github.repository != '{repository}'"
+    assert "needs" not in public, "it must run even when the check job fails"
+    runs = "\n".join(step.get("run", "") for step in public["steps"])
+    assert f"git clone --depth=1 {pins.REPO_URL} /tmp/kohya-trainer" in runs
+    assert "git -C /tmp/kohya-trainer submodule update --init --depth=1" in runs
+    assert "pip install -e /tmp/kohya-trainer" in runs
+    assert "python /tmp/kohya-trainer/scripts/canary_smoke.py" in runs
+    assert not [step for step in public["steps"] if "checkout" in step.get("uses", "")], (
+        "it tests the public branch only"
+    )
+
+
+def test_both_canary_jobs_set_up_the_same_environment():
+    jobs = _canary_workflow()["jobs"]
+
+    def setup(job):
+        steps = jobs[job]["steps"]
+        python = [step["with"] for step in steps if "setup-python" in step.get("uses", "")]
+        packages = [step["run"] for step in steps if "apt-get" in step.get("run", "") or "torch" in step.get("run", "")]
+        return python, packages
+
+    python, packages = setup("colab-drift")
+    assert len(python) == 1 and len(packages) == 2
+    assert setup("public-path") == (python, packages)
 
 
 def test_pull_request_runs_cannot_cancel_the_weekly_run():
