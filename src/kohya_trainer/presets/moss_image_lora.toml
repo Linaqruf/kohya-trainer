@@ -18,9 +18,16 @@ lr_scheduler = "constant"
 max_grad_norm = 1.0
 
 [flow_matching]
-# Upstream calls shift 3.0 very close to how MOSS-Image was trained.
-timestep_sampling = "shift"
-discrete_flow_shift = 3.0
+# MOSS-Image's pre-training schedule, from upstream's MOSS-Image guide. The
+# minus sign puts most steps at high noise. This sampler reads the shift too:
+# 1.0 is the grid MOSS-Image was trained on.
+timestep_sampling = "truncated_logit_normal"
+logit_mean = -1.09
+logit_std = 0.95
+discrete_flow_shift = 1.0
+# The pre-training cut at sigma 0.95, and its 1% of steps drawn uniformly.
+timestep_cutoff = 0.95
+timestep_uniform_ratio = 0.01
 sigmoid_scale = 1.0
 
 [precision_memory]
