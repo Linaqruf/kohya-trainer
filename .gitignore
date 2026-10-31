@@ -1,0 +1,21 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.venv/
+.pytest_cache/
+.ruff_cache/
+runs/
+# CI and Colab install with pip from pins.py and the backend's requirements.
+# A committed lockfile goes out of date without notice.
+uv.lock
+
+# Local token files. Tokens live in Colab secrets or the environment.
+.env
+.env.*
+
+# Local coding-agent state.
+.claude/
+.agents/
+.codex/

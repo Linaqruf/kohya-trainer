@@ -1,0 +1,53 @@
+# MOSS-Image LoRA preset. Keys are sd-scripts argument names.
+# bf16: the trainer turns fp8 off for this model, and ConvRot INT8 takes its place.
+
+[network]
+network_module = "networks.lora_generic"
+# Rank 32, alpha equal to rank, at 1e-4: the recipe MOSS-Image trainers use.
+network_dim = 32
+network_alpha = 32
+# Only the DiT trains, so text encoder outputs can be cached. To train the text
+# embedder too, set network_args = ["train_text_embedder=True"].
+network_train_unet_only = true
+
+[optimizer]
+optimizer_type = "AdamW8bit"
+# Set for the rank and alpha above. Lower it if you raise alpha.
+learning_rate = 1e-4
+lr_scheduler = "constant"
+max_grad_norm = 1.0
+
+[flow_matching]
+# Upstream calls shift 3.0 very close to how MOSS-Image was trained.
+timestep_sampling = "shift"
+discrete_flow_shift = 3.0
+sigmoid_scale = 1.0
+
+[precision_memory]
+mixed_precision = "bf16"
+save_precision = "bf16"
+gradient_checkpointing = true
+gradient_accumulation_steps = 1
+cache_latents = true
+cache_latents_to_disk = true
+cache_text_encoder_outputs = true
+cache_text_encoder_outputs_to_disk = true
+max_data_loader_n_workers = 2
+persistent_data_loader_workers = true
+
+[run]
+# About 1400 steps at the automatic repeats. Later epochs can bring the
+# training outfit into other prompts, so pick an earlier epoch if they do.
+max_train_epochs = 7
+seed = 42
+
+[saving]
+save_model_as = "safetensors"
+save_every_n_epochs = 1
+# Saves the training state each epoch, so a stopped session can resume. Only the newest is kept.
+save_state = true
+save_last_n_epochs_state = 1
+
+[sampling]
+# Upstream fixes the sampler (Euler). Steps and CFG go in the prompt file.
+sample_every_n_epochs = 1

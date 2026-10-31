@@ -1,0 +1,31 @@
+name: ci
+
+on:
+  push:
+    branches: [resurrection, main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: pinned backend is present (submodule-gated tests must not silently skip)
+        run: test -f external/sd-scripts/train_network.py
+      - run: pip install -e .[dev]
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: pytest
+      - name: notebooks are in sync with the emitter
+        run: |
+          python scripts/build_notebooks.py
+          git add -N notebooks
+          git diff --exit-code notebooks/

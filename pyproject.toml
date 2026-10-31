@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kohya-trainer"
+version = "0.1.0"
+description = "Colab-first LoRA training notebooks over a pinned kohya-ss/sd-scripts backend"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE.md"]
+authors = [{ name = "Linaqruf" }]
+dependencies = [
+    "huggingface_hub>=0.30",
+    "requests>=2.28",
+    "tqdm>=4.66.1",
+    "tomli>=2.0; python_version < '3.11'",
+    "tomli-w>=1.0",
+]
+
+[project.urls]
+Repository = "https://github.com/Linaqruf/kohya-trainer"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    # The workflow tests read .github/workflows/*.yml.
+    "pyyaml>=6",
+    # Exact pin: a new ruff release can change its default rules and fail CI. Bump it on its own.
+    "ruff==0.17.3",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+kohya_trainer = ["presets/*.toml"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+# Notebooks are build artifacts; external/ is the upstream submodule.
+extend-exclude = ["notebooks", "external"]
+
+[tool.ruff.lint.flake8-comprehensions]
+# dict(name=value) reads like the call it is unpacked into.
+allow-dict-calls-with-keyword-arguments = true
+
+[tool.ruff.lint.isort]
+# The tests' shared helpers import last, after the package.
+known-local-folder = ["conftest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"

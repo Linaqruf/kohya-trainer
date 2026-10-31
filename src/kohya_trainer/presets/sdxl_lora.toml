@@ -1,0 +1,55 @@
+# SDXL / Illustrious LoRA preset, for a character or style LoRA in 16 GB.
+# Keys are sd-scripts argument names. The sections only group them.
+
+[network]
+network_module = "networks.lora"
+network_dim = 32
+network_alpha = 16
+# The text encoder is not trained, so its outputs can be cached below.
+network_train_unet_only = true
+
+[optimizer]
+optimizer_type = "AdamW8bit"
+# Higher than recipes that train the text encoder too. If you train it, use about 1e-4.
+learning_rate = 3e-4
+lr_scheduler = "cosine"
+# Below 1, a share of all steps.
+lr_warmup_steps = 0.05
+max_grad_norm = 1.0
+
+[precision_memory]
+# fp16 runs on every Colab GPU, the T4 included. The fp16-fix VAE and
+# no_half_vae keep decodes stable.
+mixed_precision = "fp16"
+save_precision = "fp16"
+no_half_vae = true
+gradient_checkpointing = true
+gradient_accumulation_steps = 1
+sdpa = true
+# Caching keeps SDXL inside 16 GB, so caption shuffle and caption dropout
+# cannot be used (config.check_compat checks it).
+cache_latents = true
+cache_latents_to_disk = true
+cache_text_encoder_outputs = true
+cache_text_encoder_outputs_to_disk = true
+max_data_loader_n_workers = 2
+persistent_data_loader_workers = true
+
+[loss]
+min_snr_gamma = 5
+
+[run]
+max_train_epochs = 10
+seed = 42
+max_token_length = 225
+
+[saving]
+save_model_as = "safetensors"
+save_every_n_epochs = 1
+# Saves the training state each epoch, so a stopped session can resume. Only the newest is kept.
+save_state = true
+save_last_n_epochs_state = 1
+
+[sampling]
+sample_every_n_epochs = 1
+sample_sampler = "euler_a"
