@@ -11,7 +11,7 @@ from __future__ import annotations
 REPO_URL = "https://github.com/Linaqruf/kohya-trainer"
 
 # Must equal the gitlink of external/sd-scripts.
-SD_SCRIPTS_COMMIT = "11d8cedd0c67b93a10f8b2d75f43554f6f12c794"
+SD_SCRIPTS_COMMIT = "cb70b96858477e716a2096292ab8aab433277f38"
 SD_SCRIPTS_DIR = "external/sd-scripts"
 
 # sd-scripts needs torch 2.6 or later and does not pin it. We keep Colab's

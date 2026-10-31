@@ -380,10 +380,12 @@ _ROUTES = (
         tuning_note=(
             "- The keys below go in `config_overrides`. A dict keeps one `network_args`, so put all its entries "
             "in one list, and all patterns in one `exclude_patterns`.\n"
-            '- The default `"timestep_sampling": "shift"` at `discrete_flow_shift = 3.0` is very close to how '
-            "MOSS-Image was trained. Upstream's own recipe is "
-            '`"timestep_sampling": "sigma", "weighting_scheme": "logit_normal", "logit_mean": -1.09, '
-            '"logit_std": 0.95, "discrete_flow_shift": 1.0`.\n'
+            "- The default timesteps are MOSS-Image's own pre-training schedule: "
+            '`"timestep_sampling": "truncated_logit_normal", "logit_mean": -1.09, "logit_std": 0.95, '
+            '"discrete_flow_shift": 1.0`. Keep the minus sign: it puts most steps at high noise. A positive '
+            "mean does the reverse. This sampler reads `discrete_flow_shift` too, so keep it at 1.0. "
+            'Upstream\'s simpler setting, `"timestep_sampling": "shift"` at `discrete_flow_shift = 3.0`, gives '
+            "almost the same noise levels.\n"
             "- LoHa and LoKr usually train at about 2e-4.\n"
             "- If the training outfit shows up in prompts for another outfit, pick an earlier epoch. Or train "
             "again without block 22, which the official sampler skips in the negative half of CFG: "

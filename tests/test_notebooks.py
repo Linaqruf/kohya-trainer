@@ -923,7 +923,7 @@ def test_flow_help_matches_which_samplers_read_each_setting():
 
     for statement in func.body:
         visit(statement, set())
-    # "sigma" reads the shift through the shifted scheduler, which the module names.
+    # "sigma" and "truncated_logit_normal" read the shift through the shifted scheduler, which the module names.
     shift_aware = [
         n
         for n in ast.walk(tree)
@@ -932,6 +932,75 @@ def test_flow_help_matches_which_samplers_read_each_setting():
     readers["discrete_flow_shift"] |= {c.value for c in ast.walk(shift_aware[0].value) if isinstance(c, ast.Constant)}
     assert readers["discrete_flow_shift"] == set(EMITTER.FLOW_SHIFT_SAMPLERS)
     assert readers["sigmoid_scale"] == set(EMITTER.FLOW_SCALE_SAMPLERS)
+
+
+@needs_submodule
+def test_moss_image_samplers_are_known_to_the_backend():
+    """The preset's sampler and those the tips name are choices of the pinned MOSS-Image trainer.
+
+    sd-scripts does not check choices for values from the TOML config, and an unknown
+    sampler falls back to uniform sampling without a word.
+    """
+    from kohya_trainer import config, registry
+
+    moss = registry.get("moss_image")
+    tree = ast.parse((SD_SCRIPTS / "library" / "moss_image_train_utils.py").read_text(encoding="utf-8"))
+    [call] = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call) and n.args and getattr(n.args[0], "value", None) == "--timestep_sampling"
+    ]
+    [choices] = [k.value for k in call.keywords if k.arg == "choices"]
+    known = {c.value for c in choices.elts}
+    # Every mention of the sampler in the tips uses the config_overrides spelling, so none goes unchecked.
+    named = re.findall(r'"timestep_sampling": "([^"]+)"', moss.tuning_note)
+    assert moss.tuning_note.count("timestep_sampling") == len(named)
+    named = set(named) | {config.load_preset(moss.preset)["timestep_sampling"]}
+    assert "truncated_logit_normal" in named
+    assert named <= known, named - known
+    keys = set(re.findall(r'"(\w+)": ', moss.tuning_note))
+    assert {"timestep_sampling", "logit_mean", "logit_std", "discrete_flow_shift"} <= keys
+    config.validate_keys(dict.fromkeys(keys), SD_SCRIPTS, moss.entrypoint)
+
+
+@needs_submodule
+def test_moss_image_default_schedule_is_upstream_recipe():
+    """The preset and the tip give the pre-training schedule that the pinned trainer's help names.
+
+    The sign of logit_mean decides which end of the noise range most steps train at.
+    """
+    from kohya_trainer import config, registry
+
+    moss = registry.get("moss_image")
+    source = (SD_SCRIPTS / "library" / "moss_image_train_utils.py").read_text(encoding="utf-8")
+    found = re.search(
+        r"--timestep_sampling (\w+) --logit_mean (\S+) --logit_std (\S+) --discrete_flow_shift ([\d.]+)", source
+    )
+    assert found, "the trainer's help no longer names the pre-training schedule"
+    sampler, mean, std, shift = found.groups()
+    preset = config.load_preset(moss.preset)
+    assert preset["timestep_sampling"] == sampler == "truncated_logit_normal"
+    assert (preset["logit_mean"], preset["logit_std"], preset["discrete_flow_shift"]) == (
+        float(mean),
+        float(std),
+        float(shift),
+    )
+    assert float(mean) < 0
+    assert (
+        f'"timestep_sampling": "{sampler}", "logit_mean": {mean}, "logit_std": {std}, "discrete_flow_shift": {shift}'
+        in moss.tuning_note
+    )
+    # The cut and the uniform share are set too, at the backend's defaults, which are the pre-training values.
+    tree = ast.parse((SD_SCRIPTS / "library" / "args.py").read_text(encoding="utf-8"))
+    defaults = {
+        n.args[0].value: next(k.value.value for k in n.keywords if k.arg == "default")
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+        and n.args
+        and getattr(n.args[0], "value", None) in ("--timestep_cutoff", "--timestep_uniform_ratio")
+    }
+    assert (preset["timestep_cutoff"], preset["timestep_uniform_ratio"]) == (0.95, 0.01)
+    assert defaults == {"--timestep_cutoff": 0.95, "--timestep_uniform_ratio": 0.01}
 
 
 def test_blocks_to_swap_shows_only_where_the_trainer_swaps_blocks():
@@ -983,8 +1052,12 @@ def test_moss_image_notebooks_carry_the_route_defaults_and_notes():
     oneclick = _by_name("moss_image_lora.ipynb")
     assert moss.training_note in oneclick
     advanced = _by_name("moss_image_lora_advanced.ipynb")
-    assert _dropdown(advanced, "timestep_sampling") == 'timestep_sampling = "shift" #@param ["sigmoid", "shift"]'
-    assert _dropdown(advanced, "discrete_flow_shift").startswith("discrete_flow_shift = 3.0 #@param")
+    assert _dropdown(advanced, "timestep_sampling") == (
+        'timestep_sampling = "truncated_logit_normal" #@param ["sigmoid", "shift", "truncated_logit_normal"]'
+    )
+    assert _dropdown(advanced, "discrete_flow_shift").startswith("discrete_flow_shift = 1.0 #@param")
+    # The help says which shift each offered sampler needs.
+    assert 'Keep 1.0 for "truncated_logit_normal". For "shift", use 3.0.' in "\n".join(_code_cells(advanced))
     footer = json.loads(advanced)["cells"][-1]["source"]
     assert "`caption_dropout_rate` is 0.1 by default for this model" in footer
     assert "It works with the cached text-encoder outputs." in footer

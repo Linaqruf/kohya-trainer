@@ -244,9 +244,9 @@ SNR_FORM = '"min_snr_gamma": min_snr_gamma,\n"noise_offset": noise_offset,\n'
 
 # The flow samplers the form offers, plus the preset's own if it is another.
 FLOW_SAMPLERS = ["sigmoid", "shift"]
-# Which samplers read each setting (get_noisy_model_input_and_timesteps in
-# library/flux_train_utils.py).
-FLOW_SHIFT_SAMPLERS = ("sigma", "shift")
+# Which samplers read each setting (get_noisy_model_input_and_timesteps and
+# _SHIFT_AWARE_TIMESTEP_SAMPLING in library/flux_train_utils.py).
+FLOW_SHIFT_SAMPLERS = ("sigma", "shift", "truncated_logit_normal")
 FLOW_SCALE_SAMPLERS = ("sigmoid", "shift", "flux_shift")
 
 
@@ -269,6 +269,9 @@ def flow_fields(row: registry.ModelRoute, preset: dict | None = None) -> str:
     help_text = f"`discrete_flow_shift` works only when `timestep_sampling` is {_quoted_list(shift_users)}."
     if preset["timestep_sampling"] == "sigmoid":
         help_text += " If hands and fine detail do not improve, try 3.0."
+    elif preset["timestep_sampling"] == "truncated_logit_normal" and row.key == "moss_image":
+        # MOSS-Image's figures: 1.0 is its training grid, and shift 3.0 comes close to its schedule.
+        help_text += ' Keep 1.0 for "truncated_logit_normal". For "shift", use 3.0.'
     help_text += f" `sigmoid_scale` works with {_quoted_list(scale_users)}."
     if preset["timestep_sampling"] == "sigmoid" and preset["sigmoid_scale"] != 1.3:
         help_text += " Try 1.3 for sharper fine detail."

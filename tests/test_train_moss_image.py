@@ -57,7 +57,8 @@ def test_moss_image_plan_uses_its_recipe(image_dataset, tmp_path, monkeypatch):
     assert config_["network_module"] == "networks.lora_generic"
     assert (config_["network_dim"], config_["network_alpha"], config_["learning_rate"]) == (32, 32, 1e-4)
     assert config_["max_train_epochs"] == 7
-    assert (config_["timestep_sampling"], config_["discrete_flow_shift"]) == ("shift", 3.0)
+    assert (config_["timestep_sampling"], config_["discrete_flow_shift"]) == ("truncated_logit_normal", 1.0)
+    assert (config_["logit_mean"], config_["logit_std"]) == (-1.09, 0.95)
     assert config_["text_encoder"] == str(tmp_path / "qwen3.5_9b_bf16.safetensors")
     assert config_["vae"].endswith("flux2-vae.safetensors")
     assert config_["network_train_unet_only"] is True and config_["cache_text_encoder_outputs_to_disk"] is True
